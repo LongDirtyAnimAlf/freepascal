@@ -950,6 +950,8 @@ implementation
                cgmessage1(type_h_convert_sub_operands_to_prevent_overflow,def.typename);
              muln:
                cgmessage1(type_h_convert_mul_operands_to_prevent_overflow,def.typename);
+             else
+               ;
            end;
       end;
 
@@ -1653,7 +1655,25 @@ implementation
         left:=nil;
         { create a set constructor tree }
         arrayconstructor_to_set(hp);
-        result:=hp;
+        if is_emptyset(hp) then
+          begin
+            { enforce the result type for an empty set }
+            hp.resultdef:=resultdef;
+            result:=hp;
+          end
+        else if hp.resultdef<>resultdef then
+          begin
+            { the set might contain a subrange element (e.g. through a variable),
+              thus we need to insert another type conversion }
+            if nf_explicit in flags then
+              result:=ctypeconvnode.create_explicit(hp,totypedef)
+            else if nf_internal in flags then
+              result:=ctypeconvnode.create_internal(hp,totypedef)
+            else
+              result:=ctypeconvnode.create(hp,totypedef);
+          end
+        else
+          result:=hp;
       end;
 
 
@@ -2383,15 +2403,6 @@ implementation
            not(resultdef.typ in [procvardef,recorddef,setdef]) then
           maybe_call_procvar(left,true);
 
-        { convert array constructors to sets, because there is no conversion
-          possible for array constructors }
-        if (resultdef.typ<>arraydef) and
-           is_array_constructor(left.resultdef) then
-          begin
-            arrayconstructor_to_set(left);
-            typecheckpass(left);
-          end;
-
         if target_specific_general_typeconv then
           exit;
 
@@ -2480,6 +2491,16 @@ implementation
 
               te_incompatible :
                 begin
+                  { convert an array constructor to a set so that we still get
+                    the error "set of Y incompatible to Z" instead of "array of
+                    X incompatible to Z" }
+                  if (resultdef.typ<>arraydef) and
+                     is_array_constructor(left.resultdef) then
+                    begin
+                      arrayconstructor_to_set(left);
+                      typecheckpass(left);
+                    end;
+
                   { Procedures have a resultdef of voiddef and functions of their
                     own resultdef. They will therefore always be incompatible with
                     a procvar. Because isconvertable cannot check for procedures we
@@ -2679,9 +2700,6 @@ implementation
                   else
                    IncompatibleTypes(left.resultdef,resultdef);
                 end;
-
-              else
-                internalerror(200211231);
             end;
           end;
         { Give hint or warning for unportable code, exceptions are
@@ -2774,7 +2792,6 @@ implementation
 
       function docheckremoveinttypeconvs(n: tnode): boolean;
         begin
-          result:=false;
           if wasoriginallysmallerint(n) then
             exit(true);
           case n.nodetype of
@@ -2800,6 +2817,8 @@ implementation
                    (((n.nodetype=andn) and wasoriginallysmallerint(tbinarynode(n).left)) or
                     ((n.nodetype=andn) and wasoriginallysmallerint(tbinarynode(n).right))));
               end;
+            else
+              result:=false;
           end;
         end;
 
@@ -3094,6 +3113,8 @@ implementation
                    exit;
                 end;
             end;
+          else
+            ;
         end;
 {$ifndef CPUNO32BITOPS}
         { must be done before code below, because we need the
@@ -3135,6 +3156,8 @@ implementation
                     end;
                 end;
             end;
+          else
+            ;
         end;
 {$endif not CPUNO32BITOPS}
       end;
@@ -3177,9 +3200,6 @@ implementation
       begin
          result:=nil;
          expectloc:=LOC_REGISTER;
-         { Use of FPC_EMPTYCHAR label requires setting pi_needs_got flag }
-         if (cs_create_pic in current_settings.moduleswitches) then
-           include(current_procinfo.flags,pi_needs_got);
       end;
 
 
@@ -3604,9 +3624,6 @@ implementation
       begin
          first_ansistring_to_pchar:=nil;
          expectloc:=LOC_REGISTER;
-         { Use of FPC_EMPTYCHAR label requires setting pi_needs_got flag }
-         if (cs_create_pic in current_settings.moduleswitches) then
-           include(current_procinfo.flags,pi_needs_got);
       end;
 
 
@@ -3670,8 +3687,6 @@ implementation
                        end
                      else
                        internalerror(200802231);
-                   else
-                     internalerror(200802165);
                  end;
                  break;
                end;
@@ -4237,6 +4252,8 @@ implementation
                 resultdef:=pasbool1type;
               asn:
                 resultdef:=tclassrefdef(right.resultdef).pointeddef;
+              else
+                ;
             end;
           end
         else if is_interface(right.resultdef) or
@@ -4248,6 +4265,8 @@ implementation
                resultdef:=pasbool1type;
              asn:
                resultdef:=right.resultdef;
+             else
+               ;
            end;
 
             { left is a class or interface }

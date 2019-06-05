@@ -307,7 +307,8 @@ type
     potype_propsetter,
     potype_exceptfilter,      { SEH exception filter or termination handler }
     potype_mainstub,          { "main" function that calls through to FPC_SYSTEMMAIN }
-    potype_pkgstub            { stub for a package file, that tells OS that all is OK }
+    potype_pkgstub,           { stub for a package file, that tells OS that all is OK }
+    potype_libmainstub        { "main" function for a library that calls through to FPC_LIBMAIN }
   );
   tproctypeoptions=set of tproctypeoption;
 
@@ -415,7 +416,10 @@ type
     { procedure is an automatically generated property setter }
     po_is_auto_setter,
     { must never be inlined          by auto-inlining }
-    po_noinline
+    po_noinline,
+    { same as po_varargs, but with an array-of-const parameter instead of with the
+      "varargs" modifier or Mac-Pascal ".." parameter }
+    po_variadic
   );
   tprocoptions=set of tprocoption;
 
@@ -964,7 +968,8 @@ inherited_objectoptions : tobjectoptions = [oo_has_virtual,oo_has_private,oo_has
       'property setters',   {potype_propsetter}
       'exception filters',  {potype_exceptfilter}
       '"main" stub',        {potype_mainstub}
-      'package stub'        {potype_pkgstub}
+      'package stub',       {potype_pkgstub}
+      'lib "main" stub'     {potype_libmainstub}
     );
 
     { TProcOption string identifiers for error messages }
@@ -1027,7 +1032,8 @@ inherited_objectoptions : tobjectoptions = [oo_has_virtual,oo_has_private,oo_has
       'C-style blocks',{po_is_block}
       'po_is_auto_getter',{po_is_auto_getter}
       'po_is_auto_setter',{po_is_auto_setter}
-      'po_noinline'{po_noinline}
+      'po_noinline',{po_noinline}
+      'C-style array-of-const' {po_variadic}
     );
 
 implementation

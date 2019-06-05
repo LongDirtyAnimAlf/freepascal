@@ -397,7 +397,7 @@ type
           constructor Create(const s:TCmdStr);
           destructor  Destroy;override;
           function GetCopy:TLinkedListItem;override;
-          function Str:TCmdStr; {$ifdef CCLASSESINLINE}inline;{$endif}
+          property Str: TCmdStr read FPStr;
        end;
 
        { string container }
@@ -422,9 +422,9 @@ type
           { true if string is in the container }
           function Find(const s:TCmdStr):TCmdStrListItem;
           { inserts an item }
-          procedure InsertItem(item:TCmdStrListItem); {$ifdef CCLASSESINLINE}inline;{$endif}
+          procedure InsertItem(item:TCmdStrListItem);
           { concats an item }
-          procedure ConcatItem(item:TCmdStrListItem); {$ifdef CCLASSESINLINE}inline;{$endif}
+          procedure ConcatItem(item:TCmdStrListItem);
           property Doubles:boolean read FDoubles write FDoubles;
        end;
 
@@ -2380,12 +2380,6 @@ end;
     destructor TCmdStrListItem.Destroy;
       begin
         FPStr:='';
-      end;
-
-
-    function TCmdStrListItem.Str:TCmdStr;
-      begin
-        Str:=FPStr;
       end;
 
 

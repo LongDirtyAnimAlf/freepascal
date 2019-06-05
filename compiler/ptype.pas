@@ -1051,7 +1051,7 @@ implementation
          { don't keep track of procdefs in a separate list, because the
            compiler may add additional procdefs (e.g. property wrappers for
            the jvm backend) }
-         insert_record_hidden_paras(trecorddef(current_structdef));
+         insert_struct_hidden_paras(trecorddef(current_structdef));
          { restore symtable stack }
          symtablestack.pop(recst);
          if trecorddef(current_structdef).is_packed and is_managed_type(current_structdef) then
@@ -1135,6 +1135,8 @@ implementation
                                else
                                  def:=corddef.create(range_to_basetype(lv,hv),lv,hv,true);
                            end;
+                         else
+                           internalerror(2019050527);
                        end;
                      end;
                  end
@@ -1882,8 +1884,6 @@ implementation
                     def:=object_dec(odt_interfacecorba,name,newsym,genericdef,genericlist,nil,ht_none);
                   it_interfacejava:
                     def:=object_dec(odt_interfacejava,name,newsym,genericdef,genericlist,nil,ht_none);
-                  else
-                    internalerror(2010122612);
                 end;
               end;
             _OBJCPROTOCOL :

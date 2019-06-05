@@ -73,18 +73,13 @@ interface
           jumptable_no_range : boolean;
           { has the implementation jumptable support }
           min_label : tconstexprint;
-          { Number of labels }
-          labelcnt: TCgInt;
-          { Number of individual values checked, counting each value in a range
-            individually (e.g. 0..2 counts as 3). }
-          TrueCount: TCgInt;
 
           function GetBranchLabel(Block: TNode; out _Label: TAsmLabel): Boolean;
 
           function  blocklabel(id:longint):tasmlabel;
-          procedure optimizevalues(var max_linear_list:aint;var max_dist:aword);virtual;
+          procedure optimizevalues(var max_linear_list:int64;var max_dist:qword);virtual;
           function  has_jumptable : boolean;virtual;
-          procedure genjumptable(hp : pcaselabel;min_,max_ : aint); virtual;
+          procedure genjumptable(hp : pcaselabel;min_,max_ : int64); virtual;
           procedure genlinearlist(hp : pcaselabel); virtual;
           procedure genlinearcmplist(hp : pcaselabel); virtual;
 
@@ -594,6 +589,8 @@ implementation
                   Block := TStatementNode(Block).Left;
                   Continue;
                 end;
+              else
+                ;
             end;
 
             Break;
@@ -613,7 +610,7 @@ implementation
       end;
 
 
-    procedure tcgcasenode.optimizevalues(var max_linear_list:aint;var max_dist:aword);
+    procedure tcgcasenode.optimizevalues(var max_linear_list:int64;var max_dist:qword);
       begin
         { no changes by default }
       end;
@@ -626,7 +623,7 @@ implementation
       end;
 
 
-    procedure tcgcasenode.genjumptable(hp : pcaselabel;min_,max_ : aint);
+    procedure tcgcasenode.genjumptable(hp : pcaselabel;min_,max_ : int64);
       begin
         internalerror(200209161);
       end;
@@ -827,7 +824,7 @@ implementation
 {$endif}
 {$endif cpuhighleveltarget}
                   begin
-                     hlcg.a_cmp_const_reg_label(current_asmdata.CurrAsmList, opsize, OC_EQ, aint(t^._low.svalue),hregister, blocklabel(t^.blockid));
+                     hlcg.a_cmp_const_reg_label(current_asmdata.CurrAsmList, opsize, OC_EQ, tcgint(t^._low.svalue),hregister, blocklabel(t^.blockid));
                   end;
                 { Reset last here, because we've only checked for one value and need to compare
                   for the next range both the lower and upper bound }
@@ -934,7 +931,7 @@ implementation
 {$endif}
 {$endif cpuhighleveltarget}
                        begin
-                        hlcg.a_cmp_const_reg_label(current_asmdata.CurrAsmList, opsize, jmp_lt, aint(t^._low.svalue), hregister,
+                        hlcg.a_cmp_const_reg_label(current_asmdata.CurrAsmList, opsize, jmp_lt, tcgint(t^._low.svalue), hregister,
                            elselabel);
                        end;
                   end;
@@ -1026,7 +1023,7 @@ implementation
 {$endif}
 {$endif cpuhighleveltarget}
                   begin
-                     hlcg.a_cmp_const_reg_label(current_asmdata.CurrAsmList, opsize, jmp_le, aint(t^._high.svalue), hregister, blocklabel(t^.blockid));
+                     hlcg.a_cmp_const_reg_label(current_asmdata.CurrAsmList, opsize, jmp_le, tcgint(t^._high.svalue), hregister, blocklabel(t^.blockid));
                   end;
 
                 last:=t^._high;
@@ -1136,7 +1133,7 @@ implementation
 
       begin
         labelarray:=nil;
-        SetLength(labelarray,case_count_labels(root));
+        SetLength(labelarray,labelcnt);
         nextarrayentry:=0;
         addarrayentry(root);
         rebuild(0,high(labelarray),root);
@@ -1146,18 +1143,6 @@ implementation
       end;
 
     procedure tcgcasenode.pass_generate_code;
-
-      { Combines "case_count_labels" and "case_true_count" }
-      procedure CountBoth(p : pcaselabel);
-        begin
-          Inc(labelcnt);
-          Inc(TrueCount, (p^._high.svalue - p^._low.svalue) + 1);
-          if assigned(p^.less) then
-            CountBoth(p^.less);
-          if assigned(p^.greater) then
-            CountBoth(p^.greater);
-        end;
-
       var
          oldflowcontrol: tflowcontrol;
          i : longint;
@@ -1165,8 +1150,8 @@ implementation
          distv,
          lv,hv,
          max_label: tconstexprint;
-         max_linear_list : aint;
-         max_dist : aword;
+         max_linear_list : int64;
+         max_dist : qword;
          ShortcutElse: Boolean;
       begin
          location_reset(location,LOC_VOID,OS_NO);
@@ -1230,9 +1215,6 @@ implementation
          else
 {$endif not cpu64bitalu and not cpuhighleveltarget}
            begin
-              labelcnt := 0;
-              TrueCount := 0;
-
               if cs_opt_level1 in current_settings.optimizerswitches then
                 begin
                    { procedures are empirically passed on }
@@ -1242,8 +1224,6 @@ implementation
                    { moreover can the size only be appro- }
                    { ximated as it is not known if rel8,  }
                    { rel16 or rel32 jumps are used   }
-
-                   CountBoth(labels);
 
                    max_label := case_get_max(labels);
 
@@ -1278,7 +1258,7 @@ implementation
                      end
                    else
                      begin
-                        max_dist:=4*TrueCount;
+                        max_dist:=4*labelcoverage;
 
                         { Don't allow jump tables to get too large }
                         if max_dist>4*labelcnt then

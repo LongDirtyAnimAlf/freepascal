@@ -146,6 +146,8 @@ implementation
               undefineddef:
                 { don't write any RTTI for these }
                 continue;
+              else
+                ;
             end;
             { always generate persistent tables for types in the interface so
               they can be reused in other units and give always the same pointer
@@ -256,6 +258,8 @@ implementation
 
                           if is_open_array(para.vardef) or is_array_of_const(para.vardef) then
                             write_rtti_reference(tcb,tarraydef(para.vardef).elementdef,fullrtti)
+                          else if para.vardef=cformaltype then
+                            write_rtti_reference(tcb,nil,fullrtti)
                           else
                             write_rtti_reference(tcb,para.vardef,fullrtti);
                           write_param_flag(tcb,para);
@@ -692,6 +696,8 @@ implementation
                     write_rtti(tpropertysym(sym).propdef,rt);
                   fieldvarsym:
                     write_rtti(tfieldvarsym(sym).vardef,rt);
+                  else
+                    ;
                 end;
               end;
           end;
@@ -804,6 +810,8 @@ implementation
                              internalerror(200706101);
                            inc(address,int64(def.size*hp^.value));
                          end;
+                       else
+                         internalerror(2019050523);
                      end;
                      hp:=hp^.next;
                   end;
@@ -1395,6 +1403,8 @@ implementation
                { write param type }
                if is_open_array(parasym.vardef) or is_array_of_const(parasym.vardef) then
                  write_rtti_reference(tcb,tarraydef(parasym.vardef).elementdef,fullrtti)
+               else if parasym.vardef=cformaltype then
+                 write_rtti_reference(tcb,nil,fullrtti)
                else
                  write_rtti_reference(tcb,parasym.vardef,fullrtti);
                { write name of current parameter }
@@ -1442,6 +1452,8 @@ implementation
                  begin
                    if is_open_array(tparavarsym(def.paras[i]).vardef) or is_array_of_const(tparavarsym(def.paras[i]).vardef) then
                      write_rtti_reference(tcb,tarraydef(tparavarsym(def.paras[i]).vardef).elementdef,fullrtti)
+                   else if tparavarsym(def.paras[i]).vardef=cformaltype then
+                     write_rtti_reference(tcb,nil,fullrtti)
                    else
                      write_rtti_reference(tcb,tparavarsym(def.paras[i]).vardef,fullrtti);
                  end;
@@ -1656,6 +1668,8 @@ implementation
                    objectdef_rtti_interface_full(def);
                  end;
                end;
+             else
+               ;
            end;
            tcb.end_anonymous_record;
         end;
@@ -1937,6 +1951,8 @@ implementation
             begin
               enumdef_rtti_extrasyms(Tenumdef(def));
             end;
+        else
+          ;
       end;
     end;
 
@@ -1993,6 +2009,8 @@ implementation
               write_rtti(tabstractpointerdef(def).pointeddef,rt);
           procvardef:
             params_write_rtti(tabstractprocdef(def),rt,false);
+          else
+            ;
         end;
       end;
 
@@ -2022,9 +2040,6 @@ implementation
       begin
         s:=def.rtti_mangledname(rt)+suffix;
         result:=current_asmdata.RefAsmSymbol(s,AT_DATA,indirect);
-        if (cs_create_pic in current_settings.moduleswitches) and
-           assigned(current_procinfo) then
-          include(current_procinfo.flags,pi_needs_got);
         if def.owner.moduleid<>current_module.moduleid then
           current_module.add_extern_asmsym(s,AB_EXTERNAL,AT_DATA);
       end;

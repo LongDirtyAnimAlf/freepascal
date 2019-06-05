@@ -1086,19 +1086,6 @@ implementation
                       aktcallnode.procdefinition.proccalloption) then
           copy_value_by_ref_para;
 
-        { does it need to load RTTI? }
-        if assigned(parasym) and (parasym.varspez=vs_out) and
-           (cs_create_pic in current_settings.moduleswitches) and
-           (
-             is_rtti_managed_type(left.resultdef) or
-             (
-               is_open_array(resultdef) and
-               is_managed_type(tarraydef(resultdef).elementdef)
-             )
-           ) and
-           not(target_info.system in systems_garbage_collected_managed_types) then
-          include(current_procinfo.flags,pi_needs_got);
-
         if assigned(fparainit) then
           firstpass(fparainit);
         firstpass(left);
@@ -1334,10 +1321,14 @@ implementation
 
                      case parasym.varspez of
                        vs_var,
-                       vs_constref,
                        vs_out :
                          begin
                            if not valid_for_formal_var(left,true) then
+                            CGMessagePos(left.fileinfo,parser_e_illegal_parameter_list);
+                         end;
+                       vs_constref:
+                         begin
+                           if not valid_for_formal_constref(left,true) then
                             CGMessagePos(left.fileinfo,parser_e_illegal_parameter_list);
                          end;
                        vs_const :
@@ -1351,6 +1342,8 @@ implementation
                                typecheckpass(left);
                              end;
                          end;
+                       else
+                         ;
                      end;
                    end
                  else
@@ -2001,6 +1994,8 @@ implementation
               result:=(tabstractvarsym(tloadnode(hp).symtableentry).varregable in [vr_none,vr_addr]);
             temprefn:
               result:=not(ti_may_be_in_reg in ttemprefnode(hp).tempflags);
+            else
+              ;
           end;
       end;
 
@@ -4103,6 +4098,8 @@ implementation
                         LOC_REGISTER,
                         LOC_FPUREGISTER :
                           break;
+                        else
+                          ;
                       end;
                     end;
                   LOC_MMREGISTER,
@@ -4113,6 +4110,8 @@ implementation
                          (node_complexity(hpcurr)>node_complexity(hp)) then
                         break;
                     end;
+                  else
+                    ;
                 end;
                 hpprev:=hp;
                 hp:=tcallparanode(hp.right);
@@ -4382,11 +4381,6 @@ implementation
               ([cnf_member_call,cnf_inherited] * callnodeflags <> []) then
              current_procinfo.ConstructorCallingConstructor:=true;
 
-           { object check helper will load VMT -> needs GOT }
-           if (cs_check_object in current_settings.localswitches) and
-              (cs_create_pic in current_settings.moduleswitches) then
-             include(current_procinfo.flags,pi_needs_got);
-
            { Continue with checking a normal call or generate the inlined code }
            if cnf_do_inline in callnodeflags then
              result:=pass1_inline
@@ -4416,7 +4410,7 @@ implementation
 
          { calculate the parameter size needed for this call include varargs if they are available }
          if assigned(varargsparas) then
-           pushedparasize:=paramanager.create_varargs_paraloc_info(procdefinition,varargsparas)
+           pushedparasize:=paramanager.create_varargs_paraloc_info(procdefinition,callerside,varargsparas)
          else
            pushedparasize:=procdefinition.callerargareasize;
 
@@ -4564,6 +4558,8 @@ implementation
                   typecheckpass(n);
                   result := fen_true;
                 end;
+              else
+                ;
             end;
           end;
       end;

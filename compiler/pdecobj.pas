@@ -72,19 +72,20 @@ implementation
           recorddef:
             begin
               parse_record_proc_directives(pd);
-              // we can't add hidden params here because record is not yet defined
-              // and therefore record size which has influence on paramter passing rules may change too
-              // look at record_dec to see where calling conventions are applied (issue #0021044)
-              handle_calling_convention(pd,[hcc_declaration,hcc_check]);
             end;
           objectdef:
             begin
               parse_object_proc_directives(pd);
-              handle_calling_convention(pd,hcc_default_actions_intf);
             end
           else
             internalerror(2011040502);
         end;
+        // We can't add hidden params here because record is not yet defined
+        // and therefore record size which has influence on paramter passing rules may change too
+        // look at record_dec to see where calling conventions are applied (issue #0021044).
+        // The same goes for objects/classes due to the calling convention that may only be set
+        // later (mantis #35233).
+        handle_calling_convention(pd,hcc_default_actions_intf_struct);
 
         { add definition to procsym }
         proc_add_definition(pd);
@@ -115,7 +116,7 @@ implementation
           Message(parser_e_no_paras_for_class_constructor);
         consume(_SEMICOLON);
         include(astruct.objectoptions,oo_has_class_constructor);
-        current_module.flags:=current_module.flags or uf_classinits;
+        include(current_module.moduleflags,mf_classinits);
         { no return value }
         pd.returndef:=voidtype;
         constr_destr_finish_head(pd,astruct);
@@ -237,7 +238,7 @@ implementation
           Message(parser_e_no_paras_for_class_destructor);
         consume(_SEMICOLON);
         include(astruct.objectoptions,oo_has_class_destructor);
-        current_module.flags:=current_module.flags or uf_classinits;
+        include(current_module.moduleflags,mf_classinits);
         { no return value }
         pd.returndef:=voidtype;
         constr_destr_finish_head(pd,astruct);
@@ -521,6 +522,8 @@ implementation
           odt_objcclass,odt_objcprotocol,odt_objccategory:
             get_objc_class_or_protocol_external_status(current_objectdef);
           odt_helper: ; // nothing
+          else
+            ;
         end;
       end;
 
@@ -639,6 +642,8 @@ implementation
                          Message(type_e_helper_type_expected);
                          childof:=nil;
                        end;
+                   else
+                     ;
                 end;
               end;
             hasparentdefined:=true;
@@ -662,6 +667,8 @@ implementation
                 { inherit from TObject by default for compatibility }
                 if current_objectdef<>java_jlobject then
                   childof:=class_tobject;
+              else
+                ;
             end;
           end;
 
@@ -745,8 +752,6 @@ implementation
       begin
         if not is_objectpascal_helper(current_structdef) then
           Internalerror(2011021103);
-        if helpertype=ht_none then
-          Internalerror(2011021001);
 
         consume(_FOR);
         single_type(hdef,[stoParseClassParent]);
@@ -759,6 +764,8 @@ implementation
                 Message(type_e_record_type_expected);
               ht_type:
                 Message1(type_e_type_id_expected,hdef.typename);
+              else
+                internalerror(2019050532);
             end;
           end
         else
@@ -804,6 +811,8 @@ implementation
                       parent helper }
                     check_inheritance_record_type_helper(hdef);
                 end;
+              else
+                internalerror(2019050531);
             end;
           end;
 
@@ -923,7 +932,7 @@ implementation
                      is_classdef and not (po_staticmethod in result.procoptions) then
                     MessagePos(result.fileinfo,parser_e_class_methods_only_static_in_records);
 
-                  handle_calling_convention(result,hcc_default_actions_intf);
+                  handle_calling_convention(result,hcc_default_actions_intf_struct);
 
                   { add definition to procsym }
                   proc_add_definition(result);
@@ -1447,6 +1456,8 @@ implementation
                       else if (current_objectdef.objname^='FPCBASEPROCVARTYPE') then
                         java_procvarbase:=current_objectdef;
                     end;
+                  else
+                    ;
                 end;
               end;
             if (current_module.modulename^='OBJCBASE') then
@@ -1455,6 +1466,8 @@ implementation
                   odt_objcclass:
                     if (current_objectdef.objname^='Protocol') then
                       objc_protocoltype:=current_objectdef;
+                  else
+                    ;
                 end;
               end;
           end;

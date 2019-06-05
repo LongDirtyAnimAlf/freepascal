@@ -368,7 +368,9 @@ interface
           all assemblers. }
         asd_cpu,
         { for the OMF object format }
-        asd_omf_linnum_line
+        asd_omf_linnum_line,
+        { RISC-V }
+        asd_option
       );
 
       TAsmSehDirective=(
@@ -380,7 +382,7 @@ interface
           ash_pushnv,ash_savenv
         );
 
-      TSymbolPairKind = (spk_set, spk_thumb_set, spk_localentry);
+      TSymbolPairKind = (spk_set, spk_set_global, spk_thumb_set, spk_localentry);
 
 
     const
@@ -408,7 +410,9 @@ interface
         'code',
         'cpu',
         { for the OMF object format }
-        'omf_line'
+        'omf_line',
+        { RISC-V }
+        'option'
       );
       sehdirectivestr : array[TAsmSehDirective] of string[16]=(
         '.seh_proc','.seh_endproc',
@@ -419,7 +423,7 @@ interface
         '.pushnv','.savenv'
       );
       symbolpairkindstr: array[TSymbolPairKind] of string[11]=(
-        '.set', '.thumb_set', '.localentry'
+        '.set', '.set', '.thumb_set', '.localentry'
       );
 
     type
@@ -2089,8 +2093,6 @@ implementation
             value.s128val:=ppufile.getreal;
           aitrealconst_s64comp:
             value.s64compval:=comp(ppufile.getint64);
-          else
-            internalerror(2014050602);
         end;
       end;
 
@@ -2118,8 +2120,6 @@ implementation
               c:=comp(value.s64compval);
               ppufile.putint64(int64(c));
             end
-          else
-            internalerror(2014050601);
         end;
       end;
 
@@ -2148,8 +2148,6 @@ implementation
             result:=10;
           aitrealconst_s128bit:
             result:=16;
-          else
-            internalerror(2014050603);
         end;
       end;
 
@@ -2814,6 +2812,8 @@ implementation
                     add_reg_instruction_hook(self,shifterop^.rs);
                 end;
 {$endif ARM}
+              else
+                ;
              end;
           end;
       end;
@@ -2839,6 +2839,8 @@ implementation
               top_wstring:
                 donewidestring(pwstrval);
 {$endif jvm}
+              else
+                ;
             end;
             typ:=top_none;
           end;
@@ -2892,6 +2894,8 @@ implementation
                   p.oper[i]^.shifterop^:=oper[i]^.shifterop^;
                 end;
 {$endif ARM}
+              else
+                ;
             end;
           end;
         getcopy:=p;
@@ -2926,9 +2930,10 @@ implementation
         i : integer;
       begin
         inherited ppuload(t,ppufile);
-        { hopefully, we don't get problems with big/litte endian here when cross compiling :/ }
+        { hopefully, we don't get problems with big/little endian here when cross compiling :/ }
         ppufile.getdata(condition,sizeof(tasmcond));
-        allocate_oper(ppufile.getbyte);
+        ops := ppufile.getbyte;
+        allocate_oper(ops);
         for i:=0 to ops-1 do
           ppuloadoper(ppufile,oper[i]^);
         opcode:=tasmop(ppufile.getword);
@@ -3252,8 +3257,6 @@ implementation
               ppufile.getdata(data.reg,sizeof(TRegister));
               data.offset:=ppufile.getdword;
             end;
-        else
-          InternalError(2011091201);
         end;
       end;
 
@@ -3281,8 +3284,6 @@ implementation
               ppufile.putdata(data.reg,sizeof(TRegister));
               ppufile.putdword(data.offset);
             end;
-        else
-          InternalError(2011091202);
         end;
       end;
 

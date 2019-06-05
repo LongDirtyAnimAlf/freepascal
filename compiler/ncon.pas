@@ -353,8 +353,6 @@ implementation
              v:=extended(v);
            s128real:
              internalerror(2013102701);
-           else
-             internalerror(2013102702);
          end;
          value_real:=v;
          value_currency:=v;
@@ -454,8 +452,6 @@ implementation
                   if ts128real(value_real)=MathInf.Value then
                     CGMessage(parser_e_range_check_error);
                 end;
-              else
-                internalerror(2016112902);
             end;
           end;
       end;
@@ -465,8 +461,6 @@ implementation
       begin
          result:=nil;
          expectloc:=LOC_CREFERENCE;
-         if (cs_create_pic in current_settings.moduleswitches) then
-           include(current_procinfo.flags,pi_needs_got);
       end;
 
 
@@ -868,9 +862,6 @@ implementation
           end
         else
           expectloc:=LOC_CREFERENCE;
-        if (cs_create_pic in current_settings.moduleswitches) and
-           (expectloc <> LOC_CONSTANT) then
-          include(current_procinfo.flags,pi_needs_got);
       end;
 
 
@@ -1160,9 +1151,6 @@ implementation
           expectloc:=LOC_CONSTANT
          else
           expectloc:=LOC_CREFERENCE;
-        if (cs_create_pic in current_settings.moduleswitches) and
-           (expectloc <> LOC_CONSTANT) then
-          include(current_procinfo.flags,pi_needs_got);
       end;
 
 
@@ -1254,9 +1242,6 @@ implementation
       begin
          result:=nil;
          expectloc:=LOC_CREFERENCE;
-        if (cs_create_pic in current_settings.moduleswitches) and
-          (tf_pic_uses_got in target_info.flags) then
-          include(current_procinfo.flags,pi_needs_got);
       end;
 
 

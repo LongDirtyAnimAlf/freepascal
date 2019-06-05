@@ -241,6 +241,8 @@ Implementation
               instructionLoadsFromReg :=
                 (p.oper[I]^.ref^.base = reg) or
                 (p.oper[I]^.ref^.index = reg);
+            else
+              ;
           end;
           if instructionLoadsFromReg then exit; {Bailout if we found something}
           Inc(I);
@@ -300,6 +302,8 @@ Implementation
         A_POP:
           Result := (getsupreg(reg) in p.oper[0]^.regset^) or
                                    (reg=NR_STACK_POINTER_REG);
+        else
+          ;
       end;
 
       if Result then
@@ -316,6 +320,8 @@ Implementation
           Result :=
             (taicpu(p).oper[0]^.ref^.addressmode in [AM_PREINDEXED,AM_POSTINDEXED]) and
             (taicpu(p).oper[0]^.ref^.base = reg);
+        else
+          ;
       end;
     end;
 
@@ -1968,6 +1974,7 @@ Implementation
                       strb reg1,[...]
                     }
                     if MatchInstruction(p, taicpu(p).opcode, [C_None], [PF_None]) and
+                      (taicpu(p).ops=2) and
                       GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[0]^.reg) and
                       MatchInstruction(hp1, A_STR, [C_None], [PF_B]) and
                       assigned(FindRegDealloc(taicpu(p).oper[0]^.reg,tai(hp1.Next))) and
@@ -1993,6 +2000,7 @@ Implementation
                       uxtb reg3,reg1
                     }
                     else if MatchInstruction(p, A_UXTB, [C_None], [PF_None]) and
+                      (taicpu(p).ops=2) and
                       GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[0]^.reg) and
                       MatchInstruction(hp1, A_UXTH, [C_None], [PF_None]) and
                       (taicpu(hp1).ops = 2) and
@@ -2016,6 +2024,7 @@ Implementation
                       uxtb reg3,reg1
                     }
                     else if MatchInstruction(p, A_UXTB, [C_None], [PF_None]) and
+                      (taicpu(p).ops=2) and
                       GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[0]^.reg) and
                       MatchInstruction(hp1, A_UXTB, [C_None], [PF_None]) and
                       (taicpu(hp1).ops = 2) and
@@ -2039,8 +2048,8 @@ Implementation
                       uxtb reg3,reg1
                     }
                     else if MatchInstruction(p, A_UXTB, [C_None], [PF_None]) and
-                      GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[0]^.reg) and
                       (taicpu(p).ops=2) and
+                      GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[0]^.reg) and
                       MatchInstruction(hp1, A_AND, [C_None], [PF_None]) and
                       (taicpu(hp1).ops=3) and
                       (taicpu(hp1).oper[2]^.typ=top_const) and
@@ -2075,6 +2084,7 @@ Implementation
                       strh reg1,[...]
                     }
                     if MatchInstruction(p, taicpu(p).opcode, [C_None], [PF_None]) and
+                      (taicpu(p).ops=2) and
                       GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[0]^.reg) and
                       MatchInstruction(hp1, A_STR, [C_None], [PF_H]) and
                       RegEndofLife(taicpu(p).oper[0]^.reg,taicpu(hp1)) and
@@ -2100,6 +2110,7 @@ Implementation
                       uxth reg3,reg1
                     }
                     else if MatchInstruction(p, A_UXTH, [C_None], [PF_None]) and
+                      (taicpu(p).ops=2) and
                       GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[0]^.reg) and
                       MatchInstruction(hp1, A_UXTH, [C_None], [PF_None]) and
                       (taicpu(hp1).ops=2) and
@@ -2126,6 +2137,7 @@ Implementation
                       uxth reg3,reg1
                     }
                     else if MatchInstruction(p, A_UXTH, [C_None], [PF_None]) and
+                      (taicpu(p).ops=2) and
                       GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[0]^.reg) and
                       MatchInstruction(hp1, A_AND, [C_None], [PF_None]) and
                       (taicpu(hp1).ops=3) and
@@ -2246,8 +2258,12 @@ Implementation
                       RemoveSuperfluousVMov(p, hp1, 'VOpVMov2VOp') then
                       Result:=true;
                   end
+                else
+                  ;
               end;
           end;
+        else
+          ;
       end;
     end;
 
@@ -2425,8 +2441,12 @@ Implementation
                                 end;
                            end;
                       end;
+                  else
+                    ;
                 end;
               end;
+            else
+              ;
           end;
           p := tai(p.next)
         end;
@@ -2506,6 +2526,8 @@ Implementation
             for r:=RS_R0 to RS_R15 do
                if r in p.oper[i]^.regset^ then
                  CheckLiveStart(newreg(R_INTREGISTER,r,R_SUBWHOLE));
+          else
+            ;
         end;
 
       { if live of any reg used by hp1 ends at hp1 and p uses this register then
@@ -2525,6 +2547,8 @@ Implementation
             for r:=RS_R0 to RS_R15 do
                if r in hp1.oper[i]^.regset^ then
                  CheckLiveEnd(newreg(R_INTREGISTER,r,R_SUBWHOLE));
+          else
+            ;
         end;
     end;
 
@@ -2721,7 +2745,11 @@ Implementation
                       A_ITETT:
                         if l=4 then taicpu(hp).opcode := A_ITET;
                       A_ITTTT:
-                        if l=4 then taicpu(hp).opcode := A_ITTT;
+                        begin
+                          if l=4 then taicpu(hp).opcode := A_ITTT;
+                        end
+                      else
+                        ;
                     end;
 
                   break;
@@ -2952,8 +2980,12 @@ Implementation
                                 end;
                            end;
                       end;
+                  else
+                    ;
                 end;
               end;
+            else
+              ;
           end;
           p := tai(p.next)
         end;
@@ -3104,6 +3136,8 @@ Implementation
                 SM_LSR: taicpu(p).opcode:=A_LSR;
                 SM_ASR: taicpu(p).opcode:=A_ASR;
                 SM_ROR: taicpu(p).opcode:=A_ROR;
+                else
+                  internalerror(2019050912);
               end;
 
               if taicpu(p).oper[2]^.shifterop^.rs<>NR_NO then

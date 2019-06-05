@@ -68,7 +68,7 @@ interface
       record consisting of 4 longints must be returned as a record consisting of
       two int64's on x86-64. This function is used to create (and reuse)
       temporary recorddefs for such purposes.}
-    function llvmgettemprecorddef(fieldtypes: array of tdef; packrecords, recordalignmin, maxcrecordalign: shortint): trecorddef;
+    function llvmgettemprecorddef(const fieldtypes: array of tdef; packrecords, recordalignmin, maxcrecordalign: shortint): trecorddef;
 
     { get the llvm type corresponding to a parameter, e.g. a record containing
       two integer int64 for an arbitrary record split over two individual int64
@@ -118,7 +118,8 @@ implementation
     fmodule,
     symtable,symconst,symsym,
     llvmsym,hlcgobj,
-    defutil,blockutl,cgbase,paramgr;
+    defutil,blockutl,cgbase,paramgr,
+    cpubase;
 
 
 {******************************************************************
@@ -392,8 +393,6 @@ implementation
 {$else}
                   encodedstr:=encodedstr+'fp128';
 {$endif}
-                else
-                  internalerror(2013100202);
               end;
             end;
           filedef :
@@ -419,8 +418,6 @@ implementation
                   end;
                 ft_untyped :
                   llvmaddencodedtype_intern(search_system_type('FILEREC').typedef,[lef_inaggregate]+[lef_typedecl]*flags,encodedstr);
-                else
-                  internalerror(2013100203);
               end;
             end;
           recorddef :
@@ -667,9 +664,12 @@ implementation
 
     procedure llvmaddencodedparaloctype(hp: tparavarsym; proccalloption: tproccalloption; withparaname, withattributes: boolean; var first: boolean; var encodedstr: TSymStr);
       var
+        para: PCGPara;
         paraloc: PCGParaLocation;
+        side: tcallercallee;
         signext: tllvmvalueextension;
         usedef: tdef;
+        firstloc: boolean;
       begin
         if (proccalloption in cdecl_pocalls) and
            is_array_of_const(hp.vardef) then
@@ -681,20 +681,17 @@ implementation
             encodedstr:=encodedstr+'...';
             exit
           end;
-        if withparaname then
-          begin
-            { don't add parameters that don't take up registers or stack space;
-              clang doesn't either and some LLVM backends don't support them }
-            if hp.paraloc[calleeside].isempty then
-              exit;
-            paraloc:=hp.paraloc[calleeside].location
-          end
+        if not withparaname then
+          side:=callerside
         else
-          begin
-            if hp.paraloc[callerside].isempty then
-              exit;
-            paraloc:=hp.paraloc[callerside].location;
-          end;
+          side:=calleeside;
+        { don't add parameters that don't take up registers or stack space;
+          clang doesn't either and some LLVM backends don't support them }
+        if hp.paraloc[side].isempty then
+          exit;
+        para:=@hp.paraloc[side];
+        paraloc:=para^.location;
+        firstloc:=true;
         repeat
           usedef:=paraloc^.def;
           llvmextractvalueextinfo(hp.vardef,usedef,signext);
@@ -723,15 +720,22 @@ implementation
 {$endif aarch64}
               if withattributes then
                  if first then
-                   encodedstr:=encodedstr+' sret'
-                 else { we can add some other attributes to optimise things,}
+                   encodedstr:=encodedstr+' sret noalias nocapture'
+                 else
                    encodedstr:=encodedstr+' noalias nocapture';
             end
           else if not paramanager.push_addr_param(hp.varspez,hp.vardef,proccalloption) and
              llvmbyvalparaloc(paraloc) then
             begin
               if withattributes then
-                encodedstr:=encodedstr+'* byval'
+                begin
+                  encodedstr:=encodedstr+'* byval';
+                  if firstloc and
+                     (para^.alignment<>std_param_align) then
+                    begin
+                      encodedstr:=encodedstr+' align '+tostr(para^.alignment);
+                    end;
+                end
               else
                 encodedstr:=encodedstr+'*';
             end
@@ -751,7 +755,7 @@ implementation
                     vs_value,
                     vs_const:
                       begin
-                        encodedstr:=encodedstr+' nocapture dereferenceable('
+                        encodedstr:=encodedstr+' dereferenceable('
                       end;
                     vs_var,
                     vs_out,
@@ -759,7 +763,7 @@ implementation
                       begin
                         { while normally these are not nil, it is technically possible
                           to pass nil via ptrtype(nil)^ }
-                        encodedstr:=encodedstr+' nocapture dereferenceable_or_null('
+                        encodedstr:=encodedstr+' dereferenceable_or_null('
                       end;
                     else
                       internalerror(2018120801);
@@ -777,6 +781,7 @@ implementation
               encodedstr:=encodedstr+' '+llvmasmsymname(paraloc^.llvmloc.sym);
             end;
           paraloc:=paraloc^.next;
+          firstloc:=false;
           first:=false;
         until not assigned(paraloc);
       end;
@@ -850,7 +855,7 @@ implementation
       end;
 
 
-    function llvmgettemprecorddef(fieldtypes: array of tdef; packrecords, recordalignmin, maxcrecordalign: shortint): trecorddef;
+    function llvmgettemprecorddef(const fieldtypes: array of tdef; packrecords, recordalignmin, maxcrecordalign: shortint): trecorddef;
       var
         i: longint;
         res: PHashSetItem;
@@ -923,6 +928,7 @@ implementation
         retloc: pcgparalocation;
         usedef: tdef;
         valueext: tllvmvalueextension;
+        paraslots,
         i: longint;
         sizeleft: asizeint;
       begin
@@ -983,7 +989,19 @@ implementation
               end
             end
           else
-            retdeflist[i]:=retloc^.def;
+            begin
+              if retloc^.def.typ<>floatdef then
+                begin
+                  paraslots:=sizeleft div cgpara.Alignment;
+                  if (paraslots>1) and
+                     ((paraslots*cgpara.Alignment)=sizeleft) then
+                    retdeflist[i]:=carraydef.getreusable(cgsize_orddef(int_cgsize(cgpara.Alignment)),paraslots)
+                  else
+                    retdeflist[i]:=retloc^.def;
+                end
+              else
+                retdeflist[i]:=retloc^.def;
+            end;
           inc(i);
           retloc:=retloc^.next;
         until not assigned(retloc);

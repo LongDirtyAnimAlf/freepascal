@@ -902,10 +902,7 @@ unit cgx86;
                { darwin's assembler doesn't want @PLT after call symbols }
                not(target_info.system in [system_x86_64_darwin,system_i386_iphonesim,system_x86_64_iphonesim]) then
               begin
-{$ifdef i386}
-                include(current_procinfo.flags,pi_needs_got);
-{$endif i386}
-                r.refaddr:=addr_pic
+                r.refaddr:=addr_pic;
               end
             else
               r.refaddr:=addr_full;
@@ -1332,6 +1329,8 @@ unit cgx86;
               tosize:=OS_F32;
             OS_64:
               tosize:=OS_F64;
+            else
+              ;
           end;
          if reg<>NR_ST then
            a_loadfpu_reg_reg(list,fromsize,tosize,reg,NR_ST);
@@ -1363,6 +1362,8 @@ unit cgx86;
               tosize:=OS_F32;
             OS_64:
               tosize:=OS_F64;
+            else
+              ;
           end;
         if (fromsize in [low(convertopsse)..high(convertopsse)]) and
            (tosize in [low(convertopsse)..high(convertopsse)]) then
@@ -1502,6 +1503,8 @@ unit cgx86;
               A_MOVSD,
               A_MOVQ:
                 add_move_instruction(instr);
+              else
+                ;
             end;
           end
         else
@@ -2068,6 +2071,8 @@ unit cgx86;
               a_load_const_reg(list,size,a,dst);
               exit;
             end;
+          else
+            ;
         end;
         if (op in [OP_MUL,OP_IMUL]) and (size in [OS_32,OS_S32,OS_64,OS_S64]) and
           not(cs_check_overflow in current_settings.localswitches) and
@@ -2703,6 +2708,8 @@ unit cgx86;
                list.concat(ai);
                f2:=FPUFlags2Flags[f];
              end;
+           else
+             ;
          end;
          ai := Taicpu.op_sym(A_Jcc,S_NO,l);
          ai.SetCondition(flags_to_cond(f2));
@@ -2740,6 +2747,8 @@ unit cgx86;
             end;
           F_FA,F_FAE:                 { These do not need PF check }
             f2:=FPUFlags2Flags[f];
+          else
+            ;
         end;
         hreg:=makeregsize(list,reg,OS_8);
         ai:=Taicpu.op_reg(A_SETcc,S_B,hreg);
@@ -2767,6 +2776,8 @@ unit cgx86;
             end;
           F_FA,F_FAE:
             f2:=FPUFlags2Flags[f];
+          else
+            ;
         end;
          tmpref:=ref;
          make_simple_ref(list,tmpref);
@@ -3232,13 +3243,11 @@ unit cgx86;
         {$endif}
            system_i386_freebsd,
            system_i386_netbsd,
-//         system_i386_openbsd,
            system_i386_wdosx :
              begin
                 Case target_info.system Of
                  system_i386_freebsd : mcountprefix:='.';
                  system_i386_netbsd : mcountprefix:='__';
-//               system_i386_openbsd : mcountprefix:='.';
                 else
                  mcountPrefix:='';
                 end;
@@ -3266,6 +3275,13 @@ unit cgx86;
              begin
                a_call_name(list,'mcount',false);
              end;
+           system_i386_openbsd,
+           system_x86_64_openbsd:
+             begin
+               a_call_name(list,'__mcount',false);
+             end;
+           else
+             internalerror(2019050701);
         end;
       end;
 

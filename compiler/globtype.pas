@@ -157,6 +157,7 @@ interface
          cs_do_inline,cs_fpu_fwait,cs_ieee_errors,
          cs_check_low_addr_load,cs_imported_data,
          cs_excessprecision,cs_check_fpu_exceptions,
+         cs_check_all_case_coverage,
          { mmx }
          cs_mmx,cs_mmx_saturation,
          { parser }
@@ -348,6 +349,33 @@ interface
        );
        twpoptimizerswitches = set of twpoptimizerswitch;
 
+       { module flags (extra unit flags not in ppu header) }
+       tmoduleflag = (
+         mf_init,                     { unit has initialization section }
+         mf_finalize,                 { unit has finalization section   }
+         mf_checkpointer_called,      { Unit uses experimental checkpointer test code }
+         mf_has_resourcestrings,      { unit has resource string section }
+         mf_release,                  { unit was compiled with -Ur option }
+         mf_threadvars,               { unit has threadvars }
+         mf_has_stabs_debuginfo,      { this unit has stabs debuginfo generated }
+         mf_local_symtable,           { this unit has a local symtable stored }
+         mf_uses_variants,            { this unit uses variants }
+         mf_has_resourcefiles,        { this unit has external resources (using $R directive)}
+         mf_has_exports,              { this module or a used unit has exports }
+         mf_has_dwarf_debuginfo,      { this unit has dwarf debuginfo generated }
+         mf_wideinits,                { this unit has winlike widestring typed constants }
+         mf_classinits,               { this unit has class constructors/destructors }
+         mf_resstrinits,              { this unit has string consts referencing resourcestrings }
+         mf_i8086_far_code,           { this unit uses an i8086 memory model with far code (i.e. medium, large or huge) }
+         mf_i8086_far_data,           { this unit uses an i8086 memory model with far data (i.e. compact or large) }
+         mf_i8086_huge_data,          { this unit uses an i8086 memory model with huge data (i.e. huge) }
+         mf_i8086_cs_equals_ds,       { this unit uses an i8086 memory model with CS=DS (i.e. tiny) }
+         mf_i8086_ss_equals_ds,       { this unit uses an i8086 memory model with SS=DS (i.e. tiny, small or medium) }
+         mf_package_deny,             { this unit must not be part of a package }
+         mf_package_weak              { this unit may be completely contained in a package }
+       );
+       tmoduleflags = set of tmoduleflag;
+
     type
        ttargetswitchinfo = record
           name: string[22];
@@ -454,7 +482,9 @@ interface
          m_isolike_io,          { I/O as it required by an ISO compatible compiler }
          m_isolike_program_para, { program parameters as it required by an ISO compatible compiler }
          m_isolike_mod,         { mod operation as it is required by an iso compatible compiler }
-         m_array_operators      { use Delphi compatible array operators instead of custom ones ("+") }
+         m_array_operators,     { use Delphi compatible array operators instead of custom ones ("+") }
+         m_multi_helpers,       { helpers can appear in multiple scopes simultaneously }
+         m_array2dynarray       { regular arrays can be implicitly converted to dynamic arrays }
        );
        tmodeswitches = set of tmodeswitch;
 
@@ -643,7 +673,9 @@ interface
          'ISOIO',
          'ISOPROGRAMPARAS',
          'ISOMOD',
-         'ARRAYOPERATORS'
+         'ARRAYOPERATORS',
+         'MULTIHELPERS',
+         'ARRAYTODYNARRAY'
          );
 
 

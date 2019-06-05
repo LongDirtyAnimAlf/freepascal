@@ -352,7 +352,7 @@ implementation
             end;
           { if we get here, we did not find it in the current objectdef ->
             add }
-          childpd:=tprocdef(parentpd.getcopy);
+          childpd:=tprocdef(parentpd.getcopyas(procdef,pc_normal_no_hidden,''));
           { get rid of the import name for inherited virtual class methods,
             it has to be regenerated rather than amended }
           if [po_classmethod,po_virtualmethod]<=childpd.procoptions then
@@ -1090,6 +1090,20 @@ implementation
               implement_jvm_procvar_intconstr(pd);
             tsk_jvm_virtual_clmethod:
               implement_jvm_virtual_clmethod(pd);
+{$else}
+            tsk_jvm_enum_values,
+            tsk_jvm_enum_valueof,
+            tsk_jvm_enum_classconstr,
+            tsk_jvm_enum_jumps_constr,
+            tsk_jvm_enum_fpcordinal,
+            tsk_jvm_enum_fpcvalueof,
+            tsk_jvm_enum_long2set,
+            tsk_jvm_enum_bitset2set,
+            tsk_jvm_enum_set2set,
+            tsk_jvm_procvar_invoke,
+            tsk_jvm_procvar_intconstr,
+            tsk_jvm_virtual_clmethod:
+              internalerror(2011032801);
 {$endif jvm}
             tsk_field_getter:
               implement_field_getter(pd);
@@ -1101,8 +1115,6 @@ implementation
               implement_interface_wrapper(pd);
             tsk_call_no_parameters:
               implement_call_no_parameters(pd);
-            else
-              internalerror(2011032801);
           end;
         end;
     end;

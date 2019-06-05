@@ -34,7 +34,7 @@ interface
     procedure insert_funcret_local(pd:tprocdef);
     procedure insert_hidden_para(p:TObject;arg:pointer);
     procedure check_c_para(pd:Tabstractprocdef);
-    procedure insert_record_hidden_paras(astruct: trecorddef);
+    procedure insert_struct_hidden_paras(astruct: tabstractrecorddef);
 
     type
       // flags of the *handle_calling_convention routines
@@ -47,6 +47,7 @@ interface
 
     const
       hcc_default_actions_intf=[hcc_declaration,hcc_check,hcc_insert_hidden_paras];
+      hcc_default_actions_intf_struct=hcc_default_actions_intf-[hcc_insert_hidden_paras];
       hcc_default_actions_impl=[hcc_check,hcc_insert_hidden_paras];
       hcc_default_actions_parse=[hcc_check,hcc_insert_hidden_paras];
       PD_VIRTUAL_MUTEXCLPO = [po_interrupt,po_exports,po_overridingmethod,po_inline,po_staticmethod];
@@ -448,7 +449,7 @@ implementation
       end;
 
 
-    procedure insert_record_hidden_paras(astruct: trecorddef);
+    procedure insert_struct_hidden_paras(astruct: tabstractrecorddef);
       var
         pd: tdef;
         i: longint;
@@ -524,6 +525,8 @@ implementation
                   { Temporary stub, must be rewritten to support OS/2 far16 }
                   Message1(parser_w_proc_directive_ignored,'FAR16');
                 end;
+              else
+                ;
             end;
 
             { Inlining is enabled and supported? }
@@ -570,6 +573,13 @@ implementation
 
         if hcc_insert_hidden_paras in flags then
           begin
+            { If the paraloc info has been calculated already, it will be missing for
+              the new parameters we add below. This should never be necessary before
+              we add them, as users of this information would not process these extra
+              parameters in that case }
+            if pd.has_paraloc_info<>callnoside then
+              internalerror(2019031610);
+
             { insert hidden high parameters }
             pd.parast.SymList.ForEachCall(@insert_hidden_para,pd);
 
@@ -1086,7 +1096,7 @@ implementation
           representable in source form and we don't need them anyway }
         symtablestack.push(trecorddef(nestedvarsdef).symtable);
         maybe_add_public_default_java_constructor(trecorddef(nestedvarsdef));
-        insert_record_hidden_paras(trecorddef(nestedvarsdef));
+        insert_struct_hidden_paras(trecorddef(nestedvarsdef));
         symtablestack.pop(trecorddef(nestedvarsdef).symtable);
   {$endif}
         symtablestack.free;

@@ -302,8 +302,6 @@ implementation
                 ft_typed,
                 ft_untyped:
                   result:=jvmaddencodedtype(search_system_type('FILEREC').typedef,false,encodedstr,forcesignature,founderror);
-                else
-                  internalerror(2015091406);
               end;
             end;
           recorddef :
@@ -768,8 +766,12 @@ implementation
             if torddef(def).high>127 then
               result:=s8inttype;
           u16bit:
-            if torddef(def).high>32767 then
-              result:=s16inttype;
+            begin
+              if torddef(def).high>32767 then
+                result:=s16inttype;
+            end
+          else
+            ;
         end;
     end;
 
@@ -900,6 +902,8 @@ implementation
                         usedef:=s16inttype;
                       u16bit:
                         usedef:=s32inttype;
+                      else
+                        ;
                     end;
                 end;
               result:=jvmencodetype(usedef,false);
@@ -1121,10 +1125,11 @@ implementation
             pd.visibility:=vis_public;
             { result type }
             pd.returndef:=obj;
-            { calling convention, self, ... (not for advanced records, for those
-              this is handled later) }
-            if obj.typ=recorddef then
-              handle_calling_convention(pd,[hcc_declaration,hcc_check])
+            { calling convention }
+            if assigned(current_structdef) or
+               (assigned(pd.owner.defowner) and
+                (pd.owner.defowner.typ=recorddef)) then
+              handle_calling_convention(pd,hcc_default_actions_intf_struct)
             else
               handle_calling_convention(pd,hcc_default_actions_intf);
             { register forward declaration with procsym }

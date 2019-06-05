@@ -1982,6 +1982,7 @@ ifdef CLEAN_FILES
 	-$(DEL) $(CLEAN_FILES)
 endif
 	-$(DELTREE) units
+	-$(DELTREE) bin
 	-$(DEL) *$(OEXT) *$(PPUEXT) *$(RSTEXT) *$(ASMEXT) *$(STATICLIBEXT) *$(SHAREDLIBEXT) *$(PPLEXT)
 ifneq ($(PPUEXT),.ppu)
 	-$(DEL) *.o *.ppu *.a
@@ -2441,10 +2442,10 @@ ifndef SINGLEDOTESTRUNS
 endif
 alltests: alltest alltbs alltbf allwebtbs allwebtbf
 test_c_objects: testprep
-	$(MAKE) $(patsubst %.pp,%.log, $(wildcard test/cg/cdecl/tcalext*.pp)))
-	$(MAKE) $(patsubst %.pp,%.elg, $(wildcard test/cg/cdecl/tcalext*.pp)))
-	$(MAKE) $(patsubst %.pp,%.log, $(wildcard test/cg/cdecl/tcppcl*.pp)))
-	$(MAKE) $(patsubst %.pp,%.elg, $(wildcard test/cg/cdecl/tcppcl*.pp)))
+	$(MAKE) $(patsubst %.pp,%.log, $(wildcard test/cg/cdecl/tcalext*.pp))
+	$(MAKE) $(patsubst %.pp,%.elg, $(wildcard test/cg/cdecl/tcalext*.pp))
+	$(MAKE) $(patsubst %.pp,%.log, $(wildcard test/cg/cdecl/tcppcl*.pp))
+	$(MAKE) $(patsubst %.pp,%.elg, $(wildcard test/cg/cdecl/tcppcl*.pp))
 ifdef SINGLEDOTESTRUNS
 .PHONY: allexectbs allexectbf allexecwebtbs allexecwebtbf allexectest allexectests
 allexectbs: $(addsuffix .tbslog, $(LOGFILES))
@@ -2558,6 +2559,11 @@ ifneq ($(SVNVERSION),)
 	$(ECHOREDIR) svnpackagesrevision=$(SVN_PACKAGES_REV_STR) >> $(TEST_OUTPUTDIR)/dbdigest.cfg
 endif
 ifeq ($(OS_SOURCE),openbsd)
+ifeq ($(TARPROG),$(subst gtar,,$(TARPROG)))
+  BSD_SYSTEM_TAR=1
+endif
+endif
+ifdef BSD_SYSTEM_TAR
 TARFROM=-I tar.lst
 else
 TARFROM=--files-from=tar.lst

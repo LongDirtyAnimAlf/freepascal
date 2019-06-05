@@ -165,7 +165,9 @@ interface
             tf_x86_far_procs_push_odd_bp,
             { indicates that this target can use dynamic packages otherwise an
               error will be generated if a package file is compiled }
-            tf_supports_packages
+            tf_supports_packages,
+            { supports symbol order file (to ensure symbols in vectorised sections are kept in the correct order) }
+            tf_supports_symbolorderfile
        );
 
        psysteminfo = ^tsysteminfo;
@@ -346,12 +348,14 @@ interface
        systems_indirect_entry_information = systems_darwin+[system_i386_win32,system_x86_64_win64,system_x86_64_linux];
 
        { all systems for which weak linking has been tested/is supported }
-       systems_weak_linking = systems_darwin + systems_solaris + systems_linux + systems_android;
+       systems_weak_linking = systems_darwin + systems_solaris + systems_linux + systems_android + systems_openbsd;
 
        systems_internal_sysinit = [system_i386_win32,system_x86_64_win64,
                                    system_i386_linux,system_powerpc64_linux,system_sparc64_linux,system_x86_64_linux,
                                    system_m68k_atari,system_m68k_palmos,
-                                   system_i386_haiku,system_x86_64_haiku
+                                   system_i386_haiku,system_x86_64_haiku,
+                                   system_i386_openbsd,system_x86_64_openbsd,
+                                   system_riscv32_linux,system_riscv64_linux
                                   ]+systems_darwin+systems_amigalike;
 
        { all systems that use garbage collection for reference-counted types }

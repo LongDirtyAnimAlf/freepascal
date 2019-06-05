@@ -2,7 +2,7 @@
 
 var rtl = {
 
-  version: 10301,
+  version: 10501,
 
   quiet: false,
   debug_load_units: false,
@@ -25,6 +25,8 @@ var rtl = {
   checkVersion: function(v){
     if (rtl.version != v) throw "expected rtl version "+v+", but found "+rtl.version;
   },
+
+  hiInt: Math.pow(2,53),
 
   hasString: function(s){
     return rtl.isString(s) && (s.length>0);
@@ -372,18 +374,19 @@ var rtl = {
   tObjectDestroy: "Destroy",
 
   free: function(obj,name){
-    if (obj[name]==null) return;
+    if (obj[name]==null) return null;
     obj[name].$destroy(rtl.tObjectDestroy);
     obj[name]=null;
   },
 
   freeLoc: function(obj){
-    if (obj==null) return;
+    if (obj==null) return null;
     obj.$destroy(rtl.tObjectDestroy);
     return null;
   },
 
   recNewT: function(parent,name,initfn,full){
+    // create new record type
     var t = {};
     if (parent) parent[name] = t;
     function hide(prop){
@@ -441,6 +444,8 @@ var rtl = {
   EInvalidCast: null,
   EAbstractError: null,
   ERangeError: null,
+  EIntOverflow: null,
+  EPropWriteOnly: null,
 
   raiseE: function(typename){
     var t = rtl[typename];
@@ -724,6 +729,12 @@ var rtl = {
   checkMethodCall: function(obj,type){
     if (rtl.isObject(obj) && rtl.is(obj,type)) return;
     rtl.raiseE("EInvalidCast");
+  },
+
+  oc: function(i){
+    // overflow check integer
+    if ((Math.floor(i)===i) && (i>=-0x1fffffffffffff) && (i<=0x1fffffffffffff)) return i;
+    rtl.raiseE('EIntOverflow');
   },
 
   rc: function(i,minval,maxval){
@@ -1054,6 +1065,47 @@ var rtl = {
     }
     setCodeFn(1);
     return 0;
+  },
+
+  and: function(a,b){
+    var hi = 0x80000000;
+    var low = 0x7fffffff;
+    var h = (a / hi) & (b / hi);
+    var l = (a & low) & (b & low);
+    return h*hi + l;
+  },
+
+  or: function(a,b){
+    var hi = 0x80000000;
+    var low = 0x7fffffff;
+    var h = (a / hi) | (b / hi);
+    var l = (a & low) | (b & low);
+    return h*hi + l;
+  },
+
+  xor: function(a,b){
+    var hi = 0x80000000;
+    var low = 0x7fffffff;
+    var h = (a / hi) ^ (b / hi);
+    var l = (a & low) ^ (b & low);
+    return h*hi + l;
+  },
+
+  shr: function(a,b){
+    if (a<0) a += rtl.hiInt;
+    if (a<0x80000000) return a >> b;
+    if (b<=0) return a;
+    if (b>54) return 0;
+    return Math.floor(a / Math.pow(2,b));
+  },
+
+  shl: function(a,b){
+    if (a<0) a += rtl.hiInt;
+    if (b<=0) return a;
+    if (b>54) return 0;
+    var r = a * Math.pow(2,b);
+    if (r <= rtl.hiInt) return r;
+    return r % rtl.hiInt;
   },
 
   initRTTI: function(){

@@ -439,6 +439,8 @@ implementation
                         if is_open_string(hdef) then
                           hdef:=cshortstringtype;
                        end;
+                      else
+                        ;
                     end;
                   end;
                 if (target_info.system in [system_powerpc_morphos,system_m68k_amiga]) then
@@ -512,10 +514,8 @@ implementation
         until not try_to_consume(_SEMICOLON);
 
         if explicit_paraloc then
-          begin
-            pd.has_paraloc_info:=callerside;
-            include(pd.procoptions,po_explicitparaloc);
-          end;
+          include(pd.procoptions,po_explicitparaloc);
+
         { remove parasymtable from stack }
         sc.free;
         { reset object options }
@@ -1323,7 +1323,7 @@ implementation
 {
             if ((pd.returndef=cvarianttype) or (pd.returndef=colevarianttype)) and
                not(cs_compilesystem in current_settings.moduleswitches) then
-              current_module.flags:=current_module.flags or uf_uses_variants;
+              include(current_module.moduleflags,mf_uses_variants);
 }
             if is_dispinterface(pd.struct) and not is_automatable(pd.returndef) then
               Message1(type_e_not_automatable,pd.returndef.typename);
@@ -1520,6 +1520,13 @@ implementation
             internalerror(2015052202);
         end;
 
+        if (pd.proccalloption in cdecl_pocalls) and
+           (pd.paras.count>0) and
+           is_array_of_const(tparavarsym(pd.paras[pd.paras.count-1]).vardef) then
+          begin
+            include(pd.procoptions,po_variadic);
+          end;
+
         { file types can't be function results }
         if assigned(pd) and
            (pd.returndef.typ=filedef) then
@@ -1689,7 +1696,7 @@ implementation
             // we can't add hidden params here because record is not yet defined
             // and therefore record size which has influence on paramter passing rules may change too
             // look at record_dec to see where calling conventions are applied (issue #0021044)
-            handle_calling_convention(result,[hcc_declaration,hcc_check]);
+            handle_calling_convention(result,hcc_default_actions_intf_struct);
 
             { add definition to procsym }
             proc_add_definition(result);
@@ -2113,6 +2120,8 @@ procedure pd_syscall(pd:tabstractprocdef);
                 else
                   include(pd.procoptions,get_default_syscall);
               end;
+          else
+            internalerror(2019050526);
         end;
       end;
 
@@ -2537,7 +2546,7 @@ const
       mutexclpo     : []
     ),(
       idtok:_INTERNPROC;
-      pd_flags : [pd_interface,pd_notobject,pd_notobjintf,pd_notrecord,pd_nothelper];
+      pd_flags : [pd_interface,pd_implemen,pd_notobject,pd_notobjintf,pd_notrecord,pd_nothelper];
       handler  : @pd_internproc;
       pocall   : pocall_internproc;
       pooption : [];
@@ -2921,6 +2930,8 @@ const
                  end
                else
                  exit;
+             else
+               ;
            end;
          end;
 
@@ -3201,6 +3212,8 @@ const
                 begin
                   pd.aliasnames.insert(target_info.Cprefix+pd.cplusplusmangledname);
                 end;
+              else
+                ;
             end;
             { prevent adding the alias a second time }
             include(pd.procoptions,po_has_public_name);

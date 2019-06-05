@@ -177,11 +177,18 @@ const
   nIllegalAssignmentToForLoopVar = 3111;
   nFunctionHidesIdentifier_NonProc = 3112;
   nTypeXCannotBeExtendedByATypeHelper = 3113;
-  nDerivedXMustExtendASubClassY = 3114;
-  nDefaultPropertyNotAllowedInHelperForX = 3115;
-  nHelpersCannotBeUsedAsTypes = 3116;
-  nBitWiseOperationsAre32Bit = 3117;
-  nImplictConversionUnicodeToAnsi = 3118;
+  nTypeXCannotBeExtendedByARecordHelper = 3114;
+  nDerivedXMustExtendASubClassY = 3115;
+  nDefaultPropertyNotAllowedInHelperForX = 3116;
+  nHelpersCannotBeUsedAsTypes = 3117;
+  nMessageHandlersInvalidParams = 3118;
+  nImplictConversionUnicodeToAnsi = 3119;
+  nWrongTypeXInArrayConstructor = 3120;
+  nUnknownCustomAttributeX = 3121;
+  nAttributeIgnoredBecauseAbstractX = 3122;
+  nCreatingAnInstanceOfAbstractClassY = 3123;
+  nIllegalExpressionAfterX = 3124;
+  nMethodHidesNonVirtualMethodExactly = 3125;
 
   // using same IDs as FPC
   nVirtualMethodXHasLowerVisibility = 3250; // was 3050
@@ -306,11 +313,18 @@ resourcestring
   sCantAssignValuesToConstVariable = 'Can''t assign values to const variable';
   sIllegalAssignmentToForLoopVar = 'Illegal assignment to for-loop variable "%s"';
   sTypeXCannotBeExtendedByATypeHelper = 'Type "%s" cannot be extended by a type helper';
+  sTypeXCannotBeExtendedByARecordHelper = 'Type "%s" cannot be extended by a record helper';
   sDerivedXMustExtendASubClassY = 'Derived %s must extend a subclass of "%s" or the class itself';
   sDefaultPropertyNotAllowedInHelperForX = 'Default property not allowed in helper for %s';
   sHelpersCannotBeUsedAsTypes = 'helpers cannot be used as types';
-  sBitWiseOperationsAre32Bit = 'Bitwise operations are 32-bit';
+  sMessageHandlersInvalidParams = 'Message handlers can take only one call by ref. parameter';
   sImplictConversionUnicodeToAnsi = 'Implicit string type conversion with potential data loss from "UnicodeString" to "AnsiString"';
+  sWrongTypeXInArrayConstructor = 'Wrong type "%s" in array constructor';
+  sUnknownCustomAttributeX = 'Unknown custom attribute "%s"';
+  sAttributeIgnoredBecauseAbstractX = 'attribute ignored because abstract %s';
+  sCreatingAnInstanceOfAbstractClassY = 'Creating an instance of abstract class "%s"';
+  sIllegalExpressionAfterX = 'illegal expression after %s';
+  sMethodHidesNonVirtualMethodExactly = 'method hides identifier at "%s". Use reintroduce';
 
 type
   { TResolveData - base class for data stored in TPasElement.CustomData }
@@ -357,9 +371,9 @@ const
   MinSafeIntSingle = -16777216;
   MaxSafeIntSingle =  16777216;
   MaskUIntSingle = $3fffff;
-  MinSafeIntDouble = -$fffffffffffff-1; // -4503599627370496
-  MaxSafeIntDouble =  $fffffffffffff; //  4503599627370495
-  MaskUIntDouble = $fffffffffffff;
+  MinSafeIntDouble = -$1fffffffffffff; // -9007199254740991 54 bits (52 plus signed bit plus implicit highest bit)
+  MaxSafeIntDouble =  $1fffffffffffff; //  9007199254740991
+  MaskUIntDouble = $1fffffffffffff;
 
 type
   { TResEvalValue }
@@ -4010,6 +4024,7 @@ function TResExprEvaluator.EvalPrimitiveExprString(Expr: TPrimitiveExpr
   {$else}
   begin
     TResEvalUTF16(Result).S:=TResEvalUTF16(Result).S+WideChar(u);
+    if ForceUTF16 then ;
   end;
   {$endif}
 
@@ -4853,6 +4868,10 @@ begin
       RaiseNotYetImplemented(20170601141811,Expr);
     end;
   else
+    {$ifndef FPC_HAS_CPSTRING}
+    if LeftExpr=nil then ; // no Parameter "LeftExpr" not used
+    if RightExpr=nil then ; // no Parameter "RightExpr" not used
+    {$endif}
     RaiseNotYetImplemented(20181219233139,Expr);
   end;
 end;

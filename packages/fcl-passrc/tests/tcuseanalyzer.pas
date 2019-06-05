@@ -101,6 +101,8 @@ type
     procedure TestM_Hint_ParameterNotUsedTypecast;
     procedure TestM_Hint_OutParam_No_AssignedButNeverUsed;
     procedure TestM_Hint_ArgPassed_No_ParameterNotUsed;
+    procedure TestM_Hint_ArrayArg_No_ParameterNotUsed;
+    procedure TestM_Hint_ArrayArg_No_ParameterNotUsed2;
     procedure TestM_Hint_InheritedWithoutParams;
     procedure TestM_Hint_LocalVariableNotUsed;
     procedure TestM_HintsOff_LocalVariableNotUsed;
@@ -164,6 +166,11 @@ type
     procedure TestWP_ClassInterface_COM_Unit;
     procedure TestWP_ClassInterface_Typeinfo;
     procedure TestWP_ClassInterface_TGUID;
+    procedure TestWP_ClassHelper;
+    procedure TestWP_ClassHelper_ClassConstrucor_Used;
+    procedure TestWP_Attributes;
+    procedure TestWP_Attributes_ForwardClass;
+    procedure TestWP_Attributes_Params;
 
     // scope references
     procedure TestSR_Proc_UnitVar;
@@ -1602,6 +1609,42 @@ begin
   CheckUseAnalyzerUnexpectedHints;
 end;
 
+procedure TTestUseAnalyzer.TestM_Hint_ArrayArg_No_ParameterNotUsed;
+begin
+  StartProgram(false);
+  Add([
+  'type TArr = array of boolean;',
+  'procedure Fly(a: TArr);',
+  'begin',
+  '  a[1]:=true;',
+  'end;',
+  'begin',
+  '  Fly(nil);',
+  '']);
+  AnalyzeProgram;
+  CheckUseAnalyzerUnexpectedHints;
+end;
+
+procedure TTestUseAnalyzer.TestM_Hint_ArrayArg_No_ParameterNotUsed2;
+begin
+  StartProgram(false);
+  Add([
+  'type {#Tarr_used}TArr = array of boolean;',
+  'procedure {#Run_used}Run({#b_used}b: boolean);',
+  'begin',
+  '  if b then ;',
+  'end;',
+  'procedure {#Fly_used}Fly({#a_used}a: TArr);',
+  'begin',
+  '  Run(a[1]);',
+  'end;',
+  'begin',
+  '  Fly(nil);',
+  '']);
+  AnalyzeProgram;
+  CheckUseAnalyzerUnexpectedHints;
+end;
+
 procedure TTestUseAnalyzer.TestM_Hint_InheritedWithoutParams;
 begin
   StartProgram(false);
@@ -2261,6 +2304,13 @@ end;
 
 procedure TTestUseAnalyzer.TestWP_UnitInitialization;
 begin
+  AddModuleWithIntfImplSrc('unit2.pp',
+    LinesToStr([
+    'var i: longint;',
+    '']),
+    LinesToStr([
+    '']));
+
   AddModuleWithIntfImplSrc('unit1.pp',
     LinesToStr([
     'uses unit2;',
@@ -2268,13 +2318,6 @@ begin
     LinesToStr([
     'initialization',
     'i:=2;']));
-
-  AddModuleWithIntfImplSrc('unit2.pp',
-    LinesToStr([
-    'var i: longint;',
-    '']),
-    LinesToStr([
-    '']));
 
   StartProgram(true);
   Add('uses unit1;');
@@ -3057,6 +3100,176 @@ begin
   'var g,h: TGuid;',
   'begin',
   '  if g=h then ;',
+  '']);
+  AnalyzeWholeProgram;
+end;
+
+procedure TTestUseAnalyzer.TestWP_ClassHelper;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  {#TObject_used}TObject = class',
+  '  end;',
+  '  {#TBird_used}TBird = class',
+  '    {#TBird_A_notused}A: word;',
+  '  end;',
+  '  {#TAnt_used}TAnt = class',
+  '    {#TAnt_B_notused}B: word;',
+  '  type',
+  '    {#TMouth_used}TMouth = class',
+  '      {#TMouth_C_notused}C: word;',
+  '    type',
+  '      {#TBirdHelper_used}TBirdHelper = class helper for TBird',
+  '        procedure {#TBirdHelper_Fly_used}Fly;',
+  '      end;',
+  '    end;',
+  '  end;',
+  'procedure TAnt.TMouth.TBirdHelper.Fly;',
+  'begin',
+  'end;',
+  'var b: TBird;',
+  'begin',
+  '  b.Fly;;',
+  '']);
+  AnalyzeWholeProgram;
+end;
+
+procedure TTestUseAnalyzer.TestWP_ClassHelper_ClassConstrucor_Used;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  {#TObject_used}TObject = class',
+  '    class constructor {#TObject_Init_used}Init;',
+  '    class destructor {#TObject_Done_used}Done;',
+  '  end;',
+  '  {#TBird_used}TBird = class',
+  '    {#TBird_A_notused}A: word;',
+  '    class constructor {#TBird_Init_used}Init;',
+  '    class destructor {#TBird_Done_used}Done;',
+  '  end;',
+  '  {#TBirdHelper_used}TBirdHelper = class helper for TBird',
+  '    procedure {#TBirdHelper_Fly_used}Fly;',
+  '    class constructor {#TBirdHelper_Init_used}Init;',
+  '    class destructor {#TBirdHelper_Done_used}Done;',
+  '  end;',
+  '  TAnt = class',
+  '    class constructor {#TAnt_Init_notused}Init;',
+  '    class destructor {#TAnt_Done_notused}Done;',
+  '  end;',
+  'class constructor TObject.Init;',
+  'begin',
+  'end;',
+  'class destructor TObject.Done;',
+  'begin',
+  'end;',
+  'class constructor TBird.Init;',
+  'begin',
+  'end;',
+  'class destructor TBird.Done;',
+  'begin',
+  'end;',
+  'procedure TBirdHelper.Fly;',
+  'begin',
+  'end;',
+  'class constructor TBirdHelper.Init;',
+  'begin',
+  'end;',
+  'class destructor TBirdHelper.Done;',
+  'begin',
+  'end;',
+  'class constructor TAnt.Init;',
+  'begin',
+  'end;',
+  'class destructor TAnt.Done;',
+  'begin',
+  'end;',
+  'var b: TBird;',
+  'begin',
+  '  b.Fly;',
+  '']);
+  AnalyzeWholeProgram;
+end;
+
+procedure TTestUseAnalyzer.TestWP_Attributes;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch prefixedattributes}',
+  'type',
+  '  TObject = class',
+  '    constructor {#TObject_Create_notused}Create;',
+  '  end;',
+  '  {#TCustomAttribute_used}TCustomAttribute = class',
+  '  end;',
+  '  {#RedAttribute_used}RedAttribute = class(TCustomAttribute)',
+  '    constructor {#Red_A_used}Create(Id: word = 3; Deep: boolean = false); overload;',
+  '    constructor {#Red_B_notused}Create(Size: double); overload;',
+  '  end;',
+  '  {#Red_notused}Red = word;',
+  'constructor TObject.Create; begin end;',
+  'constructor RedAttribute.Create(Id: word; Deep: boolean); begin end;',
+  'constructor RedAttribute.Create(Size: double); begin end;',
+  'var',
+  '  [NotExisting]',
+  '  [Red]',
+  '  o: TObject;',
+  'begin',
+  '  if typeinfo(o)=nil then ;',
+  '']);
+  AnalyzeWholeProgram;
+end;
+
+procedure TTestUseAnalyzer.TestWP_Attributes_ForwardClass;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch prefixedattributes}',
+  'type',
+  '  TObject = class',
+  '    constructor {#TObject_Create_used}Create;',
+  '  end;',
+  '  {#TCustomAttribute_used}TCustomAttribute = class',
+  '  end;',
+  '  [TCustom]',
+  '  TBird = class;',
+  '  TMyInt = word;',
+  '  TBird = class end;',
+  'constructor TObject.Create; begin end;',
+  'begin',
+  '  if typeinfo(TBird)=nil then ;',
+  '']);
+  AnalyzeWholeProgram;
+end;
+
+procedure TTestUseAnalyzer.TestWP_Attributes_Params;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch prefixedattributes}',
+  'type',
+  '  TObject = class',
+  '    constructor {#TObject_Create_notused}Create;',
+  '    destructor {#TObject_Destroy_used}Destroy; virtual;',
+  '  end;',
+  '  {#TCustomAttribute_used}TCustomAttribute = class',
+  '  end;',
+  '  {#BigAttribute_used}BigAttribute = class(TCustomAttribute)',
+  '    constructor {#Big_A_used}Create(Id: word = 3); overload;',
+  '    destructor {#Big_B_used}Destroy; override;',
+  '  end;',
+  'constructor TObject.Create; begin end;',
+  'destructor TObject.Destroy; begin end;',
+  'constructor BigAttribute.Create(Id: word); begin end;',
+  'destructor BigAttribute.Destroy; begin end;',
+  'var',
+  '  [Big(3)]',
+  '  o: TObject;',
+  '  a: TCustomAttribute;',
+  'begin',
+  '  if typeinfo(o)=nil then ;',
+  '  a.Destroy;',
   '']);
   AnalyzeWholeProgram;
 end;

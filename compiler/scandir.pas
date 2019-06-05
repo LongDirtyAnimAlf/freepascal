@@ -124,7 +124,7 @@ unit scandir;
       end;
 
 
-    procedure do_moduleflagswitch(flag:cardinal;optional:boolean);
+    procedure do_moduleflagswitch(flag:tmoduleflag;optional:boolean);
       var
         state : char;
       begin
@@ -133,9 +133,9 @@ unit scandir;
         else
           state:=current_scanner.readstate;
         if state='-' then
-          current_module.flags:=current_module.flags and not flag
+          exclude(current_module.moduleflags,flag)
         else
-          current_module.flags:=current_module.flags or flag;
+          include(current_module.moduleflags,flag);
       end;
 
 
@@ -436,6 +436,12 @@ unit scandir;
       end;
 
 
+    procedure dir_checkcasecoverage;
+      begin
+        do_localswitch(cs_check_all_case_coverage);
+      end;
+
+
     procedure dir_checkfpuexceptions;
       begin
         do_localswitch(cs_check_fpu_exceptions);
@@ -472,7 +478,7 @@ unit scandir;
 
     procedure dir_denypackageunit;
       begin
-        do_moduleflagswitch(uf_package_deny,true);
+        do_moduleflagswitch(mf_package_deny,true);
       end;
 
     procedure dir_description;
@@ -1278,12 +1284,12 @@ unit scandir;
           s:=ChangeFileExt(s,target_info.resext);
         if target_info.res<>res_none then
           begin
-          current_module.flags:=current_module.flags or uf_has_resourcefiles;
-          if (res_single_file in target_res.resflags) and
-                                 not (Current_module.ResourceFiles.Empty) then
-            Message(scan_w_only_one_resourcefile_supported)
-          else
-            current_module.resourcefiles.insert(FixFileName(s));
+            include(current_module.moduleflags,mf_has_resourcefiles);
+            if (res_single_file in target_res.resflags) and
+                                   not (Current_module.ResourceFiles.Empty) then
+              Message(scan_w_only_one_resourcefile_supported)
+            else
+              current_module.resourcefiles.insert(FixFileName(s));
           end
         else
           Message(scan_e_resourcefiles_not_supported);
@@ -1727,7 +1733,7 @@ unit scandir;
       begin
         { old Delphi versions seem to use merely $WEAKPACKAGEUNIT while newer
           Delphis have $WEAPACKAGEUNIT ON... :/ }
-        do_moduleflagswitch(uf_package_weak, true);
+        do_moduleflagswitch(mf_package_weak, true);
       end;
 
     procedure dir_writeableconst;
@@ -1908,6 +1914,7 @@ unit scandir;
         AddDirective('BOOLEVAL',directive_all, @dir_booleval);
         AddDirective('BITPACKING',directive_all, @dir_bitpacking);
         AddDirective('CALLING',directive_all, @dir_calling);
+        AddDirective('CHECKCASECOVERAGE',directive_all, @dir_checkcasecoverage);
         AddDirective('CHECKFPUEXCEPTIONS',directive_all, @dir_checkfpuexceptions);
         AddDirective('CHECKLOWADDRLOADS',directive_all, @dir_checklowaddrloads);
         AddDirective('CHECKPOINTER',directive_all, @dir_checkpointer);

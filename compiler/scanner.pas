@@ -234,7 +234,7 @@ interface
          spacefound,
          eolfound : boolean;
          constructor create(const fn:string);
-         destructor  destroy;
+         destructor  destroy; override;
          procedure Add(const s:string);
          procedure AddSpace;
        end;
@@ -521,12 +521,17 @@ implementation
 
            HandleModeSwitches(m_none,changeinit);
 
-           { turn on bitpacking for mode macpas and iso pascal as well as extended pascal }
+           { turn on bitpacking and case checking for mode macpas and iso pascal,
+             as well as extended pascal }
            if ([m_mac,m_iso,m_extpas] * current_settings.modeswitches <> []) then
              begin
                include(current_settings.localswitches,cs_bitpacking);
+               include(current_settings.localswitches,cs_check_all_case_coverage);
                if changeinit then
-                 include(init_settings.localswitches,cs_bitpacking);
+                 begin
+                   include(init_settings.localswitches,cs_bitpacking);
+                   include(init_settings.localswitches,cs_check_all_case_coverage);
+                 end;
              end;
 
            { support goto/label by default in delphi/tp7/mac/iso/extpas modes }
@@ -572,13 +577,15 @@ implementation
            { Default to intel assembler for delphi/tp7 on i386/i8086 }
            if (m_delphi in current_settings.modeswitches) or
               (m_tp7 in current_settings.modeswitches) then
+             begin
 {$ifdef i8086}
-             current_settings.asmmode:=asmmode_i8086_intel;
+               current_settings.asmmode:=asmmode_i8086_intel;
 {$else i8086}
-             current_settings.asmmode:=asmmode_i386_intel;
+               current_settings.asmmode:=asmmode_i386_intel;
 {$endif i8086}
-           if changeinit then
-             init_settings.asmmode:=current_settings.asmmode;
+               if changeinit then
+                 init_settings.asmmode:=current_settings.asmmode;
+             end;
 {$endif i386 or i8086}
 
            { Exception support explicitly turned on (mainly for macpas, to }
@@ -1481,7 +1488,9 @@ type
                               tokentoconsume:=_STRING;
                             end;
                         end
-                      end;
+                      else
+                        ;
+                    end;
                   end
                 else
                   begin
@@ -1994,6 +2003,8 @@ type
                                     result.free;
                                     result:=texprvalue.create_int(tenumsym(srsym).value);
                                   end;
+                                else
+                                  ;
                               end;
                           end
                         end
@@ -2561,6 +2572,7 @@ type
 {$ifdef PREPROCWRITE}
     constructor tpreprocfile.create(const fn:string);
       begin
+        inherited create;
       { open outputfile }
         assign(f,fn);
         {$push}{$I-}
@@ -3315,6 +3327,8 @@ type
               recordtokenbuf.write(orgpattern[0],1);
               recordtokenbuf.write(orgpattern[1],length(orgpattern));
             end;
+          else
+            ;
         end;
       end;
 
@@ -3482,11 +3496,11 @@ type
                         current_tokenpos.fileindex:=tokenreadword;
                         current_filepos:=current_tokenpos;
                       end;
-                    else
-                      internalerror(2006103010);
                   end;
                 continue;
               end;
+            else
+              ;
           end;
           break;
         until false;
@@ -3831,14 +3845,14 @@ type
         valuedescr: String;
       begin
         if assigned(preprocstack) and
-           (preprocstack.typ in [pp_if,pp_elseif]) then
+           (preprocstack.typ in [pp_if,pp_ifdef,pp_ifndef,pp_elseif]) then
          begin
            { when the branch is accepted we use pp_elseif so we know that
              all the next branches need to be rejected. when this branch is still
              not accepted then leave it at pp_if }
            if (preprocstack.typ=pp_elseif) then
              preprocstack.accept:=false
-           else if (preprocstack.typ=pp_if) and preprocstack.accept then
+           else if (preprocstack.typ in [pp_if,pp_ifdef,pp_ifndef]) and preprocstack.accept then
                begin
                  preprocstack.accept:=false;
                  preprocstack.typ:=pp_elseif;
@@ -3934,11 +3948,14 @@ type
 {$ifdef PREPROCWRITE}
          if parapreprocess then
           begin
-            t:=Get_Directive(hs);
-            if not(is_conditional(t) or (t=_DIR_DEFINE) or (t=_DIR_UNDEF)) then
+            if not (m_mac in current_settings.modeswitches) then
+              t:=tdirectiveitem(turbo_scannerdirectives.Find(hs))
+            else
+              t:=tdirectiveitem(mac_scannerdirectives.Find(hs));
+            if assigned(t) and not(t.is_conditional) then
              begin
-               preprocfile^.AddSpace;
-               preprocfile^.Add('{$'+hs+current_scanner.readcomment+'}');
+               preprocfile.AddSpace;
+               preprocfile.Add('{$'+hs+current_scanner.readcomment+'}');
                exit;
              end;
           end;

@@ -49,6 +49,7 @@
   const
      UNICODE_NULL = WCHAR(#0);
      MAX_PATH = 260;
+     TLS_OUT_OF_INDEXES = DWORD($FFFFFFFF);
      LF_FACESIZE = 32;
      LF_FULLFACESIZE = 64;
      ELF_VENDOR_SIZE = 4;
@@ -472,20 +473,28 @@
      OPEN_ALWAYS = 4;
      TRUNCATE_EXISTING = 5;
 
-     FILE_ATTRIBUTE_ARCHIVE = 32;
-     FILE_ATTRIBUTE_NORMAL = 128;
-     FILE_ATTRIBUTE_DIRECTORY = 16;
-     FILE_ATTRIBUTE_HIDDEN = 2;
-     FILE_ATTRIBUTE_READONLY = 1;
-     FILE_ATTRIBUTE_SYSTEM = 4;
-     FILE_ATTRIBUTE_TEMPORARY = 256;
-     FILE_ATTRIBUTE_SPARSE_FILE = $0200;
-     FILE_ATTRIBUTE_REPARSE_POINT = $0400;
-     FILE_ATTRIBUTE_COMPRESSED = $0800;
-     FILE_ATTRIBUTE_OFFLINE = $1000;
-     FILE_ATTRIBUTE_NOT_CONTENT_INDEXED = $2000;
-     FILE_ATTRIBUTE_ENCRYPTED = $4000;
-     FILE_ATTRIBUTE_VIRTUAL = $20000;
+     FILE_ATTRIBUTE_READONLY             = $0000001;
+     FILE_ATTRIBUTE_HIDDEN               = $0000002;
+     FILE_ATTRIBUTE_SYSTEM               = $0000004;
+     FILE_ATTRIBUTE_DIRECTORY            = $0000010;
+     FILE_ATTRIBUTE_ARCHIVE              = $0000020;
+     FILE_ATTRIBUTE_DEVICE               = $0000040;
+     FILE_ATTRIBUTE_NORMAL               = $0000080;
+     FILE_ATTRIBUTE_TEMPORARY            = $0000100;
+     FILE_ATTRIBUTE_SPARSE_FILE          = $0000200;
+     FILE_ATTRIBUTE_REPARSE_POINT        = $0000400;
+     FILE_ATTRIBUTE_COMPRESSED           = $0000800;
+     FILE_ATTRIBUTE_OFFLINE              = $0001000;
+     FILE_ATTRIBUTE_NOT_CONTENT_INDEXED  = $0002000;
+     FILE_ATTRIBUTE_ENCRYPTED            = $0004000;
+     FILE_ATTRIBUTE_INTEGRITY_STREAM     = $0008000;
+     FILE_ATTRIBUTE_VIRTUAL              = $0010000;
+     FILE_ATTRIBUTE_NO_SCRUB_DATA        = $0020000;
+     FILE_ATTRIBUTE_EA                   = $0040000;
+     FILE_ATTRIBUTE_PINNED               = $0080000;
+     FILE_ATTRIBUTE_UNPINNED             = $0100000;
+     FILE_ATTRIBUTE_RECALL_ON_OPEN       = $0040000;   // same as EA ?
+     FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = $0400000;
 
      FILE_FLAG_WRITE_THROUGH = $80000000;
      FILE_FLAG_OVERLAPPED = 1073741824;
@@ -1153,17 +1162,23 @@
      KEY_WOW64_64KEY = $0100;
      KEY_WOW64_32KEY = $0200;
      KEY_WRITE = $20006;
-     PROCESS_ALL_ACCESS = $1f0fff;
-     PROCESS_CREATE_PROCESS = 128;
-     PROCESS_CREATE_THREAD = 2;
-     PROCESS_DUP_HANDLE = 64;
-     PROCESS_QUERY_INFORMATION = 1024;
-     PROCESS_SET_INFORMATION = 512;
-     PROCESS_TERMINATE = 1;
-     PROCESS_VM_OPERATION = 8;
-     PROCESS_VM_READ = 16;
-     PROCESS_VM_WRITE = 32;
-     THREAD_ALL_ACCESS = $1f03ff;
+     PROCESS_ALL_ACCESS = $1fFfff;
+     PROCESS_TERMINATE                 = $0001;
+     PROCESS_CREATE_THREAD             = $0002;
+     PROCESS_SET_SESSIONID             = $0004;
+     PROCESS_VM_OPERATION              = $0008;
+     PROCESS_VM_READ                   = $0010;
+     PROCESS_VM_WRITE                  = $0020;
+     PROCESS_DUP_HANDLE                = $0040;
+     PROCESS_CREATE_PROCESS            = $0080;
+     PROCESS_SET_QUOTA                 = $0100;
+     PROCESS_SET_INFORMATION           = $0200;
+     PROCESS_QUERY_INFORMATION         = $0400;
+     PROCESS_SUSPEND_RESUME            = $0800;
+     PROCESS_QUERY_LIMITED_INFORMATION = $1000;
+     PROCESS_SET_LIMITED_INFORMATION   = $2000;
+    
+     THREAD_ALL_ACCESS = $1FFFFF; // vista+, for old systems 0x3FF
      THREAD_DIRECT_IMPERSONATION = 512;
      THREAD_GET_CONTEXT = 8;
      THREAD_IMPERSONATE = 256;
@@ -1173,6 +1188,10 @@
      THREAD_SET_THREAD_TOKEN = 128;
      THREAD_SUSPEND_RESUME = 2;
      THREAD_TERMINATE = 1;
+     THREAD_SET_LIMITED_INFORMATION   = $0400;
+     THREAD_QUERY_LIMITED_INFORMATION = $0800;
+     THREAD_RESUME                    = $1000;
+
   { EditWordBreakProc  }
      WB_ISDELIMITER = 2;
      WB_LEFT = 0;
@@ -1249,6 +1268,12 @@
      DMDFO_DEFAULT = 0;
      DMDFO_STRETCH = 1;
      DMDFO_CENTER  = 2;
+
+
+   LOCALE_NAME_USER_DEFAULT : pwidechar = nil;
+   LOCALE_NAME_INVARIANT : pwidechar = '';
+   LOCALE_NAME_SYSTEM_DEFAULT : pwidechar = '!x-sys-default-locale';
+
 
   //
   // Predefined Resource Types
@@ -1974,6 +1999,14 @@
      SM_DIGITIZER            = 94; // win7+ 
      SM_MAXIMUMTOUCHES       = 95; // win7+   
 
+
+     SM_REMOTESESSION        = $1000; // WinXP+
+     SM_SHUTTINGDOWN         = $2000; // WinXP+
+     SM_REMOTECONTROL        = $2001; // WinXP+
+     SM_CARETBLINKINGENABLED = $2002; // WinXP+
+     SM_CONVERTIBLESLATEMODE = $2003; // WinXP+
+     SM_SYSTEMDOCKED         = $2004; // WinXP+
+
      ARW_BOTTOMLEFT = 0;
      ARW_BOTTOMRIGHT = $1;
      ARW_HIDE = $8;
@@ -2294,12 +2327,18 @@
      MB_ICONSTOP = $10;
      MB_OKCANCEL = $1;
      MB_RETRYCANCEL = $5;
+     MB_CANCELTRYCONTINUE = $6;
      MB_SERVICE_NOTIFICATION = $40000;
      MB_SETFOREGROUND = $10000;
      MB_SYSTEMMODAL = $1000;
      MB_TASKMODAL = $2000;
      MB_YESNO = $4;
      MB_YESNOCANCEL = $3;
+     MB_TYPEMASK = $0000000F;
+     MB_ICONMASK = $000000F0;
+     MB_DEFMASK  = $00000F00;
+     MB_MODEMASK = $00003000;
+     MB_MISCMASK = $0000C000;
      IDABORT = 3;
      IDCANCEL = 2;
      IDCLOSE = 8;
@@ -2656,7 +2695,6 @@ Type
      CAL_SMONTHNAME13 = 33;
      CAL_SSHORTDATE = 5;
   { SetProcessWorkingSetSize  }
-     PROCESS_SET_QUOTA = 256;
   { SetPrinter  }
   { SetService  }
   { SetStretchBltMode  }
@@ -5417,6 +5455,15 @@ Type
 
      C3_LEXICAL     = 1024;
 
+     FLASHW_STOP         = $00000000;
+     FLASHW_CAPTION      = $00000001;
+     FLASHW_TRAY         = $00000002;
+     FLASHW_ALL          = (FLASHW_CAPTION or FLASHW_TRAY);
+     FLASHW_TIMER        = $00000004;
+     FLASHW_TIMERNOFG    = $0000000C;
+
+     CLASS_E_NOTLICENSED   = DWORD($80040112);
+
   { --------------------- old stuff, need to organize! ---------------  }
   { BEGINNING of windowsx.h stuff from old headers:  }
   {  Not convertable by H2PAS
@@ -6339,8 +6386,13 @@ const
 
 
     CONSOLE_FULLSCREEN_MODE = 1;    
-    CONSOLE_WINDOWED_MODE = 2;    
+    CONSOLE_WINDOWED_MODE   = 2;    
+    PROCESS_NAME_NATIVE     = 1;
 
+    GR_GDIOBJECTS       = 0;       { Count of GDI objects }
+    GR_USEROBJECTS      = 1;       { Count of USER objects }
+    GR_GDIOBJECTS_PEAK  = 2;       { Peak count of GDI objects }
+    GR_USEROBJECTS_PEAK = 4;       { Peak count of USER objects }
 
 {$endif read_interface}
 

@@ -104,6 +104,8 @@ implementation
           list.Concat(taicpu.op_reg_reg_const(A_ADDIW,reg2,reg1,0))
         else if (tosize=OS_S32) and (tcgsize2unsigned[fromsize]=OS_64) then
           list.Concat(taicpu.op_reg_reg_const(A_ADDIW,reg2,reg1,0))
+        else if (tosize=OS_S32) and (fromsize=OS_32) then
+          list.Concat(taicpu.op_reg_reg_const(A_ADDIW,reg2,reg1,0))
         else if (tcgsize2unsigned[tosize]=OS_64) and (fromsize=OS_8) then
           list.Concat(taicpu.op_reg_reg_const(A_ANDI,reg2,reg1,$FF))
         else if (tcgsize2size[fromsize] > tcgsize2size[tosize]) or
@@ -339,6 +341,8 @@ implementation
                 a_call_name(list,'FPC_OVERFLOW',false);
                 a_label(list,l);
               end;
+            else
+              internalerror(2019051032);
           end
         else
           a_op_reg_reg_reg(list,op,size,src1,src2,dst);

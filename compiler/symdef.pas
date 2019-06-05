@@ -26,7 +26,7 @@ interface
 
     uses
        { common }
-       cclasses,
+       cclasses,widestr,
        { global }
        globtype,globals,tokens,constexp,
        { symtable }
@@ -590,6 +590,8 @@ interface
          pno_mangledname, pno_noparams);
        tprocnameoptions = set of tprocnameoption;
        tproccopytyp = (pc_normal,
+                       { everything except for hidden parameters }
+                       pc_normal_no_hidden,
                        { always creates a top-level function, removes all
                          special parameters (self, vmt, parentfp, ...) }
                        pc_bareproc,
@@ -1820,6 +1822,8 @@ implementation
 {$endif}
          generictokenbuf:=nil;
          genericdef:=nil;
+         typesymderef.reset;
+         genericdefderef.reset;
 
          { Don't register forwarddefs, they are disposed at the
            end of an type block }
@@ -2209,7 +2213,6 @@ implementation
      var
        recsize,temp: longint;
      begin
-        is_intregable:=false;
         case typ of
           orddef,
           pointerdef,
@@ -2240,6 +2243,8 @@ implementation
                  not needs_inittable;
 {$endif llvm}
             end;
+          else
+           is_intregable:=false;
         end;
      end;
 
@@ -2570,8 +2575,6 @@ implementation
               alignment:=size_2_align(2)
             else
               alignment:=size_2_align(1);
-          else
-            internalerror(200412301);
         end;
       end;
 
@@ -2598,8 +2601,6 @@ implementation
           st_widestring,
           st_unicodestring:
             Result:=voidpointertype.size;
-          else
-            internalerror(2014032301);
         end;
       end;
 
@@ -2616,6 +2617,7 @@ implementation
          calcsavesize(current_settings.packenum);
          has_jumps:=false;
          basedef:=nil;
+         basedefderef.reset;
          symtable:=tenumsymtable.create(self);
       end;
 
@@ -3066,7 +3068,7 @@ implementation
                   system_x86_64_linux,system_x86_64_freebsd,
                   system_x86_64_openbsd,system_x86_64_netbsd,
                   system_x86_64_solaris,system_x86_64_embedded,
-                  system_x86_64_dragonfly] then
+                  system_x86_64_dragonfly,system_x86_64_haiku] then
                savesize:=16
              else
                savesize:=12;
@@ -3127,6 +3129,7 @@ implementation
          inherited create(filedef,true);
          filetyp:=ft_text;
          typedfiledef:=nil;
+         typedfiledefderef.reset;
       end;
 
 
@@ -3167,8 +3170,6 @@ implementation
             result:=cfiledef.createuntyped;
           ft_text:
             result:=cfiledef.createtext;
-          else
-            internalerror(2004121201);
         end;
       end;
 
@@ -3211,8 +3212,6 @@ implementation
            end;
          ft_untyped:
            savesize:=search_system_type('FILEREC').typedef.size;
-         else
-           internalerror(2013113001);
          end;
       end;
 
@@ -3225,8 +3224,6 @@ implementation
           ft_typed,
           ft_untyped:
             result:=search_system_type('FILEREC').typedef.alignment;
-          else
-            internalerror(2018120101);
           end;
       end;
 
@@ -3250,8 +3247,6 @@ implementation
              GetTypeName:='File Of '+typedfiledef.typename;
            ft_text:
              GetTypeName:='Text'
-           else
-             internalerror(2013113002);
          end;
       end;
 
@@ -3265,8 +3260,6 @@ implementation
              getmangledparaname:='FILE$OF$'+typedfiledef.mangledparaname;
            ft_text:
              getmangledparaname:='TEXT'
-           else
-             internalerror(2013113003);
          end;
       end;
 
@@ -3329,8 +3322,6 @@ implementation
              GetTypeName:='Variant';
            vt_olevariant:
              GetTypeName:='OleVariant';
-           else
-             internalerror(2013113004);
          end;
       end;
 
@@ -3355,6 +3346,7 @@ implementation
       begin
         inherited create(dt,true);
         pointeddef:=def;
+        pointeddefderef.reset;
         if df_generic in pointeddef.defoptions then
           include(defoptions,df_generic);
         if df_specialization in pointeddef.defoptions then
@@ -3410,7 +3402,13 @@ implementation
       begin
         inherited create(pointerdef,def);
         has_pointer_math:=cs_pointermath in current_settings.localswitches;
-        if df_specialization in tstoreddef(def).defoptions then
+        if (df_specialization in tstoreddef(def).defoptions)
+{$ifndef genericdef_for_nested}
+           { currently, nested procdefs of generic routines get df_specialisation,
+             but no genericdef }
+           and assigned(tstoreddef(def).genericdef)
+{$endif}
+           then
           genericdef:=cpointerdef.getreusable(tstoreddef(def).genericdef);
       end;
 
@@ -3605,6 +3603,7 @@ implementation
       begin
          inherited create(setdef,doregister);
          elementdef:=def;
+         elementdefderef.reset;
          setmax:=high;
          actual_setalloc:=current_settings.setalloc;
 {$if defined(cpu8bitalu) or defined(cpu16bitalu)}
@@ -3749,7 +3748,9 @@ implementation
          lowrange:=l;
          highrange:=h;
          rangedef:=def;
+         rangedefderef.reset;
          _elementdef:=nil;
+         _elementdefderef.reset;
          arrayoptions:=[];
          symtable:=tarraysymtable.create(self);
       end;
@@ -4486,6 +4487,7 @@ implementation
          if symtable.refcount=1 then
            symtable.defowner:=self;
          isunion:=false;
+         cloneddefderef.reset;
       end;
 
 
@@ -4818,6 +4820,7 @@ implementation
          proccalloption:=pocall_none;
          procoptions:=[];
          returndef:=voidtype;
+         returndefderef.reset;
          savesize:=sizeof(pint);
          callerargareasize:=0;
          calleeargareasize:=0;
@@ -5036,7 +5039,7 @@ implementation
         hp    : TParavarsym;
         hpc   : tconstsym;
         first : boolean;
-        i     : integer;
+        i,j   : integer;
       begin
         s:='';
         first:=true;
@@ -5064,6 +5067,8 @@ implementation
                    s:=s+'out ';
                  vs_constref :
                    s:=s+'constref ';
+                 else
+                   ;
                end;
                if (pno_paranames in pno) then
                  s:=s+hp.realname+':';
@@ -5085,23 +5090,38 @@ implementation
                   hpc:=tconstsym(hp.defaultconstsym);
                   hs:='';
                   case hpc.consttyp of
+                    constwstring:
+                      begin
+                        if pcompilerwidestring(hpc.value.valueptr)^.len>0 then
+                          begin
+                            setlength(hs,pcompilerwidestring(hpc.value.valueptr)^.len);
+                            for j:=0 to pcompilerwidestring(hpc.value.valueptr)^.len-1 do
+                             begin
+                               if (ord(pcompilerwidestring(hpc.value.valueptr)^.data[j])<127) and
+                                  not(byte(pcompilerwidestring(hpc.value.valueptr)^.data[j]) in [0,10,13]) then
+                                 hs[j+1]:=char(pcompilerwidestring(hpc.value.valueptr)^.data[j])
+                               else
+                                 hs[j+1]:='.';
+                             end;
+                          end;
+                      end;
                     conststring,
                     constresourcestring :
                       begin
-                      If hpc.value.len>0 then
-                        begin
-                          setLength(hs,hpc.value.len);
-                          { don't write past the end of hs if the constant
-                            is > 255 chars }
-                          move(hpc.value.valueptr^,hs[1],length(hs));
-                          { make sure that constant strings with newline chars
-                            don't create a linebreak in the assembler code,
-                            since comments are line-based. Also remove nulls
-                            because the comments are written as a pchar. }
-                          ReplaceCase(hs,#0,'.');
-                          ReplaceCase(hs,#10,'.');
-                          ReplaceCase(hs,#13,'.');
-                        end;
+                        if hpc.value.len>0 then
+                          begin
+                            setLength(hs,hpc.value.len);
+                            { don't write past the end of hs if the constant
+                              is > 255 chars }
+                            move(hpc.value.valueptr^,hs[1],length(hs));
+                            { make sure that constant strings with newline chars
+                              don't create a linebreak in the assembler code,
+                              since comments are line-based. Also remove nulls
+                              because the comments are written as a pchar. }
+                            ReplaceCase(hs,#0,'.');
+                            ReplaceCase(hs,#10,'.');
+                            ReplaceCase(hs,#13,'.');
+                          end;
                       end;
                     constreal :
                       str(pbestreal(hpc.value.valueptr)^,hs);
@@ -5123,6 +5143,10 @@ implementation
                       hs:='nil';
                     constset :
                       hs:='<set>';
+                    constguid:
+                      hs:=guid2string(pguid(hpc.value.valueptr)^);
+                    constnone:
+                      internalerror(2019050704);
                   end;
                   if hs<>'' then
                    s:=s+'=`'+hs+'`';
@@ -5187,7 +5211,7 @@ implementation
                   pvs:=tparavarsym(parast.symlist[j]);
                   { in case of bare proc, don't copy self, vmt or framepointer
                     parameters }
-                  if (copytyp=pc_bareproc) and
+                  if (copytyp in [pc_bareproc,pc_normal_no_hidden]) and
                      (([vo_is_self,vo_is_vmt,vo_is_parentfp,vo_is_result,vo_is_funcret]*pvs.varoptions)<>[]) then
                     continue;
                   if paraprefix='' then
@@ -5284,7 +5308,10 @@ implementation
         if (side in [callerside,callbothsides]) and
            not(has_paraloc_info in [callerside,callbothsides]) then
           begin
-            callerargareasize:=paramanager.create_paraloc_info(self,callerside);
+            if not is_c_variadic(self) then
+              callerargareasize:=paramanager.create_paraloc_info(self,callerside)
+            else
+              callerargareasize:=paramanager.create_varargs_paraloc_info(self,callerside,nil);
             if has_paraloc_info in [calleeside,callbothsides] then
               has_paraloc_info:=callbothsides
             else
@@ -5293,7 +5320,10 @@ implementation
         if (side in [calleeside,callbothsides]) and
            not(has_paraloc_info in [calleeside,callbothsides]) then
           begin
-            calleeargareasize:=paramanager.create_paraloc_info(self,calleeside);
+            if not is_c_variadic(self) then
+              calleeargareasize:=paramanager.create_paraloc_info(self,calleeside)
+            else
+              callerargareasize:=paramanager.create_varargs_paraloc_info(self,calleeside,nil);
             if has_paraloc_info in [callerside,callbothsides] then
               has_paraloc_info:=callbothsides
             else
@@ -5617,10 +5647,13 @@ implementation
          extnumber:=$ffff;
          aliasnames:=TCmdStrList.create;
          funcretsym:=nil;
+         funcretsymderef.reset;
+         procsymderef.reset;
          forwarddef:=true;
          interfacedef:=false;
          hasforward:=false;
          struct := nil;
+         structderef.reset;
          import_dll:=nil;
          import_name:=nil;
          import_nr:=0;
@@ -6125,7 +6158,7 @@ implementation
         { don't create aliases for bare copies, nor copy the funcretsym as
           the function result parameter will be inserted again if necessary
           (e.g. if the calling convention is changed) }
-        if copytyp<>pc_bareproc then
+        if not(copytyp in [pc_bareproc,pc_normal_no_hidden]) then
           begin
             tprocdef(result).aliasnames.concatListcopy(aliasnames);
             if assigned(funcretsym) then
@@ -6738,6 +6771,10 @@ implementation
         fcurrent_dispid:=0;
         objecttype:=ot;
         childof:=nil;
+        childofderef.reset;
+        vmt_fieldderef.reset;
+        extendeddefderef.reset;
+        cloneddefderef.reset;
         if objecttype=odt_helper then
           owner.includeoption(sto_has_helper);
         symtable:=tObjectSymtable.create(self,n,current_settings.packrecords,
@@ -7477,6 +7514,8 @@ implementation
                     end;
                   odt_objcprotocol:
                     result:=result+'_OBJC_PROTOCOL_';
+                  else
+                   ;
                 end;
               end
             else
@@ -7788,6 +7827,7 @@ implementation
       begin
         inherited create;
         intfdef:=aintf;
+        intfdefderef.reset;
         IOffset:=-1;
         IType:=etStandard;
         NameMappings:=nil;

@@ -102,6 +102,7 @@ implementation
                       begin
                         if not(cs_create_pic in current_settings.moduleswitches) then
                           Internalerror(2018110701);
+                        include(current_procinfo.flags,pi_needs_got);
                         reference_reset(href,0,[]);
                         location.reference.index:=current_procinfo.got;
                         location.reference.scalefactor:=1;
@@ -119,6 +120,8 @@ implementation
                       Internalerror(2018110401);
                   end;
                 end;
+              else
+                ;
             end;
 {$endif i386}
 {$ifdef x86_64}
@@ -158,6 +161,8 @@ implementation
                       Internalerror(2019012002);
                   end;
                 end;
+              else
+                ;
             end;
 {$endif x86_64}
           end;

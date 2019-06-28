@@ -36,6 +36,9 @@ interface
           procedure ppuwrite(ppufile:tcompilerppufile);override;
           function dogetcopy : tnode;override;
           procedure printnodeinfo(var t : text);override;
+{$ifdef DEBUG_NODE_XML}
+          procedure XMLPrintNodeInfo(var t : text);override;
+{$endif DEBUG_NODE_XML}
           function pass_1 : tnode;override;
           function pass_typecheck:tnode;override;
           function pass_typecheck_cpu:tnode;virtual;
@@ -127,7 +130,7 @@ implementation
       verbose,globals,systems,constexp,
       globtype,cutils,cclasses,fmodule,
       symconst,symdef,symsym,symcpu,symtable,paramgr,defcmp,defutil,symbase,
-      cpuinfo,
+      cpuinfo,cpubase,
       pass_1,
       ncal,ncon,ncnv,nadd,nld,nbas,nflw,nmem,nmat,nutils,
       nobjc,objcdef,
@@ -191,6 +194,13 @@ implementation
         write(t,', inlinenumber = ',inlinenumber);
       end;
 
+{$ifdef DEBUG_NODE_XML}
+    procedure TInlineNode.XMLPrintNodeInfo(var T: Text);
+      begin
+        inherited;
+        Write(T, ' inlinenumber="', inlinenumber, '"');
+      end;
+{$endif DEBUG_NODE_XML}
 
     function get_str_int_func(def: tdef): string;
     var
@@ -2298,7 +2308,14 @@ implementation
 {$else}
                      hp:=cpointerconstnode.create((vl2.uvalue shl 4)+vl.uvalue,voidpointertype);
 {$endif}
-                   end
+                   end;
+                 in_const_eh_return_data_regno:
+                   begin
+                     vl:=eh_return_data_regno(vl.svalue);
+                     if vl=-1 then
+                       CGMessagePos(left.fileinfo,type_e_range_check_error_bounds);
+                     hp:=genintconstnode(vl);
+                   end;
                  else
                    internalerror(88);
                end;
@@ -2497,13 +2514,14 @@ implementation
                         else
                           vl:=tordconstnode(left).value-1;
                         if is_integer(left.resultdef) then
-                        { the type of the original integer constant is irrelevant,
-                          it should be automatically adapted to the new value
-                          (except when inlining) }
+                          { the type of the original integer constant is irrelevant,
+                            it should be automatically adapted to the new value
+                            (except when inlining) }
                           result:=create_simplified_ord_const(vl,resultdef,forinline)
                         else
                           { check the range for enums, chars, booleans }
-                          result:=cordconstnode.create(vl,left.resultdef,not(nf_internal in flags))
+                          result:=cordconstnode.create(vl,left.resultdef,not(nf_internal in flags));
+                        result.flags:=result.flags+(flags*[nf_internal]);
                       end;
                     addn,
                     subn:
@@ -2849,9 +2867,9 @@ implementation
                  (index.left.nodetype = ordconstn) and
                  not is_special_array(unpackedarraydef) then
                 begin
-                  testrange(unpackedarraydef,tordconstnode(index.left).value,false,false);
+                  adaptrange(unpackedarraydef,tordconstnode(index.left).value,rc_default);
                   tempindex := tordconstnode(index.left).value + packedarraydef.highrange-packedarraydef.lowrange;
-                  testrange(unpackedarraydef,tempindex,false,false);
+                  adaptrange(unpackedarraydef,tempindex,rc_default);
                 end;
             end;
 

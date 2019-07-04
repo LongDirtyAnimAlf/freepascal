@@ -234,6 +234,7 @@ var
   UnitList: TPpuContainerDef;
   CurUnit: TPpuModuleDef;
   SkipVersionCheck: boolean;
+  SymAnsiStr: boolean;
 
 
 {****************************************************************************
@@ -661,6 +662,14 @@ end;
                              Read Routines
 ****************************************************************************}
 
+function readsymstr(ppufile: tppufile): ansistring;
+  begin
+    if not(mf_symansistr in CurUnit.ModuleFlags) then
+      result:=ppufile.getstring
+    else
+      result:=ppufile.getansistring;
+  end;
+
 function readmanagementoperatoroptions(const space : string;const name : string):tmanagementoperators;forward;
 
 procedure readrecsymtableoptions;
@@ -845,10 +854,7 @@ begin
       for j:=0 to extsymcnt-1 do
         begin
           extsymname:=ppufile.getstring;
-          if ppuversion>130 then
-            extsymmangledname:=ppufile.getstring
-          else
-            extsymmangledname:=extsymname;
+          extsymmangledname:=ppufile.getstring;
           extsymordnr:=ppufile.getlongint;
           extsymisvar:=ppufile.getbyte<>0;
           writeln([' ',extsymname,' as ',extsymmangledname,
@@ -3147,10 +3153,7 @@ begin
              write  ([space,' DefaultConst : ']);
              readderef('');
              if (vo_has_mangledname in varoptions) then
-               if tsystemcpu(ppufile.header.common.cpu)=cpu_jvm then
-                 writeln([space,'AMangledname : ',getansistring])
-               else
-                 writeln([space,'SMangledname : ',getstring]);
+               writeln([space,'Mangledname : ',readsymstr(ppufile)]);
              if vo_has_section in varoptions then
                writeln(['Section name:',ppufile.getansistring]);
              write  ([space,' FieldVarSymDeref: ']);
@@ -3575,10 +3578,7 @@ begin
              readcommondef('Procedure definition',defoptions,def);
              read_abstract_proc_def(calloption,procoptions,TPpuProcDef(def));
              if (po_has_mangledname in procoptions) then
-               if tsystemcpu(ppufile.header.common.cpu)=cpu_jvm then
-                 writeln([space,'     Mangled name : ',getansistring])
-               else
-                 writeln([space,'     Mangled name : ',getstring]);
+               writeln([space,'     Mangled name : ',readsymstr(ppufile)]);
              writeln([space,'           Number : ',getword]);
              writeln([space,'            Level : ',getbyte]);
              write  ([space,'            Class : ']);
@@ -4071,6 +4071,8 @@ begin
              CurUnit.LongVersion:=cardinal(getlongint);
              Writeln(['LongVersion: ',CurUnit.LongVersion]);
              getsmallset(CurUnit.ModuleFlags);
+             if mf_symansistr in CurUnit.ModuleFlags then
+               SymAnsiStr:=true;
            end;
 
          ibmodulename :
@@ -4256,18 +4258,14 @@ function parseextraheader(module: TPpuModuleDef; ppufile: tppufile): boolean;
 var
   b: byte;
 begin
-  result:=true;
-  if ppuversion>=207 then
-    begin
-      result:=false;
-      b:=ppufile.readentry;
-      if b<>ibextraheader then
-        exit;
-      CurUnit.LongVersion:=cardinal(ppufile.getlongint);
-      Writeln(['LongVersion: ',CurUnit.LongVersion]);
-      ppufile.getsmallset(CurUnit.ModuleFlags);
-      result:=ppufile.EndOfEntry;
-    end;
+  result:=false;
+  b:=ppufile.readentry;
+  if b<>ibextraheader then
+    exit;
+  CurUnit.LongVersion:=cardinal(ppufile.getlongint);
+  Writeln(['LongVersion: ',CurUnit.LongVersion]);
+  ppufile.getsmallset(CurUnit.ModuleFlags);
+  result:=ppufile.EndOfEntry;
 end;
 
 procedure dofile (filename : string);
@@ -4293,11 +4291,6 @@ begin
   ppuversion:=ppufile.getversion;
 
   Writeln(['Analyzing ',filename,' (v',PPUVersion,')']);
-  if PPUVersion<16 then
-   begin
-     WriteError(Filename+' : Old PPU Formats (<v16) are not supported, Skipping');
-     exit;
-   end;
 
   if not SkipVersionCheck and (PPUVersion <> CurrentPPUVersion) then
    begin

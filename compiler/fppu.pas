@@ -1021,6 +1021,9 @@ var
 {$ifdef llvm}
         include(moduleflags,mf_llvm);
 {$endif}
+{$ifdef symansistr}
+        include(moduleflags,mf_symansistr);
+{$endif}
 
         old_docrc:=ppufile.do_crc;
         ppufile.do_crc:=false;
@@ -1508,7 +1511,7 @@ var
            headerflags:=headerflags or uf_fpu_emulation;
 {$endif cpufpemu}
 {$ifdef Test_Double_checksum_write}
-         Assign(CRCFile,s+'.IMP');
+         Assign(CRCFile,ppufilename+'.IMP');
          Rewrite(CRCFile);
 {$endif def Test_Double_checksum_write}
 
@@ -1689,7 +1692,7 @@ var
     procedure tppumodule.getppucrc;
       begin
 {$ifdef Test_Double_checksum_write}
-         Assign(CRCFile,s+'.INT')
+         Assign(CRCFile,ppufilename+'.INT');
          Rewrite(CRCFile);
 {$endif def Test_Double_checksum_write}
 

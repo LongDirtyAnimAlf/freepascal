@@ -936,6 +936,7 @@ type
     Procedure TestTypeHelper_Set;
     Procedure TestTypeHelper_Enumerator;
     Procedure TestTypeHelper_String;
+    Procedure TestTypeHelper_StringOtherUnit;
     Procedure TestTypeHelper_Boolean;
     Procedure TestTypeHelper_Double;
     Procedure TestTypeHelper_DoubleAlias;
@@ -7384,7 +7385,7 @@ begin
   Add('function GetIt: longint; begin end;');
   Add('var s: smallint;');
   Add('begin');
-  Add('   s:=smallint(GetIt);');
+  Add('  s:=smallint(GetIt);');
   ParseProgram;
 end;
 
@@ -8280,6 +8281,7 @@ begin
   '  r.V1:=trec.VC;',
   '  r.VC:=r.V1;',
   '  trec.VC:=trec.c1;',
+  '  trec.ca[1]:=trec.c2;',
   '']);
   ParseProgram;
 end;
@@ -10203,6 +10205,7 @@ begin
   Add('  ProcA(TClassA({@o}o));');
   Add('  if TClassA({@o}o).id=3 then ;');
   Add('  if (o as TClassA).id=3 then ;');
+  Add('  o:=TObject(nil);');
   ParseProgram;
 end;
 
@@ -17649,6 +17652,43 @@ begin
   '  ''abc''.DoIt;',
   '  ''xyz''.DoIt();',
   '  ''c''.Fly;',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolver.TestTypeHelper_StringOtherUnit;
+begin
+  AddModuleWithIntfImplSrc('unit2.pas',
+    LinesToStr([
+    '{$modeswitch typehelpers}',
+    'type',
+    '  TStringHelper = type helper for String',
+    '    procedure DoIt;',
+    '  end;',
+    '  TCharHelper = type helper for char',
+    '    procedure Fly;',
+    '  end;',
+    '']),
+    LinesToStr([
+    'procedure TStringHelper.DoIt;',
+    'begin',
+    '  Self[1]:=Self[2];',
+    'end;',
+    'procedure TCharHelper.Fly;',
+    'begin',
+    '  Self:=''c'';',
+    '  Self:=Self;',
+    'end;',
+    '']));
+  StartProgram(true);
+  Add([
+  'uses unit2;',
+  'var s: string;',
+  'begin',
+  '  ''abc''.DoIt;',
+  '  ''xyz''.DoIt();',
+  '  ''c''.Fly;',
+  '  s.DoIt;',
   '']);
   ParseProgram;
 end;

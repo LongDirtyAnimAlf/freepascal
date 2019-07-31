@@ -468,6 +468,11 @@ var
   SkipVersionCheck: boolean;
   SymAnsiStr: boolean;
 
+var
+  { needed during tobjectdef parsing... }
+  current_defoptions : tdefoptions;
+  current_objectoptions : tobjectoptions;
+  current_symtable_options : tsymtableoptions;
 
 {****************************************************************************
                           Helper Routines
@@ -922,7 +927,7 @@ begin
   readmanagementoperatoroptions(space,'Fields have MOPs');
 end;
 
-procedure readsymtableoptions(const s: string);
+function readsymtableoptions(const s: string) : tsymtableoptions;
 type
   tsymtblopt=record
     mask : tsymtableoption;
@@ -967,16 +972,27 @@ begin
   else
    write('none');
   writeln;
+  readsymtableoptions:=options;
 end;
 
 procedure readdefinitions(const s:string; ParentDef: TPpuContainerDef); forward;
 procedure readsymbols(const s:string; ParentDef: TPpuContainerDef = nil); forward;
 
 procedure readsymtable(const s: string; ParentDef: TPpuContainerDef = nil);
+var
+  stored_symtable_options : tsymtableoptions;
 begin
-  readsymtableoptions(s);
+  stored_symtable_options:=current_symtable_options;
+  current_symtable_options:=readsymtableoptions(s);
   readdefinitions(s, ParentDef);
   readsymbols(s, ParentDef);
+  current_symtable_options:=stored_symtable_options;
+end;
+
+procedure readrecordsymtable(const s: string; ParentDef: TPpuContainerDef = nil);
+begin
+  readrecsymtableoptions;
+  readsymtable(s, ParentDef);
 end;
 
 Procedure ReadLinkContainer(const prefix:string);
@@ -1688,6 +1704,79 @@ begin
   writeln(Visibility2Str(i));
 end;
 
+procedure readattrs(def: TPpuDef);
+var
+  i,cnt,paras: longint;
+begin
+  cnt:=ppufile.getlongint;
+  if cnt>0 then
+    begin
+      writeln([space,'   Attributes : ']);
+      space:='    '+space;
+      if assigned(def) then
+        SetLength(def.Attrs,cnt);
+      for i:=0 to cnt-1 do
+        begin
+          writeln([space,'** Custom Attribute ',i,' **']);
+          write  ([space,'      Type symbol : ']);
+          if assigned(def) then
+            begin
+              def.Attrs[i].TypeSym:=TPpuRef.Create;
+              readderef('',def.Attrs[i].TypeSym);
+            end
+          else
+            readderef('');
+          write  ([space,' Type constructor : ']);
+          if assigned(def) then
+            begin
+              def.Attrs[i].TypeConstr:=TPpuRef.Create;
+              readderef('',def.Attrs[i].TypeConstr);
+            end
+          else
+            readderef('');
+          paras:=ppufile.getlongint;
+          writeln([space,'       Parameters : ',paras]);
+          if assigned(def) then
+            def.Attrs[i].ParaCount:=paras;
+        end;
+      delete(space,1,4);
+    end;
+end;
+
+procedure readnodetree; forward;
+
+procedure readattrparas(def: TPpuDef);
+var
+  attr,para: LongInt;
+begin
+  if Length(def.Attrs) > 0 then
+    writeln([space,'   Attr Paras : ']);
+  space:='    '+space;
+  for attr:=0 to High(def.Attrs) do
+    begin
+      writeln([space,'** Custom Attribute ',attr,' Arguments **']);
+      space:='    '+space;
+      for para:=0 to def.Attrs[attr].ParaCount-1 do
+        begin
+          readnodetree;
+        end;
+      delete(space,1,4);
+    end;
+  delete(space,1,4);
+end;
+
+procedure readdefsubentries(def: TPpuDef);
+begin
+  space:='    '+space;
+  readattrparas(def);
+  delete(space,1,4);
+end;
+
+procedure readsymsubentries(def: TPpuDef);
+begin
+  readattrparas(def);
+end;
+
 procedure readcommonsym(const s:string; Def: TPpuDef = nil);
 var
   i: integer;
@@ -1707,6 +1796,7 @@ begin
   readvisibility(Def);
   write  ([space,'   SymOptions : ']);
   readsymoptions(space+'   ',Def);
+  readattrs(Def);
 end;
 
 
@@ -1776,11 +1866,6 @@ begin
       dec(np);
     end;
 end;
-
-var
-  { needed during tobjectdef parsing... }
-  current_defoptions : tdefoptions;
-  current_objectoptions : tobjectoptions;
 
 procedure readcommondef(const s:string; out defoptions: tdefoptions; Def: TPpuDef = nil);
 type
@@ -2161,10 +2246,6 @@ const
     inc(tbi,sizeof(dword));
     if ppufile.change_endian then
       var32:=swapendian(var32);
-{$ifdef FPC_BIG_ENDIAN}
-    { Tokens seems to be swapped to little endian in compiler code }
-    var32:=swapendian(var32);
-{$endif}
     result:=var32;
   end;
 
@@ -2176,10 +2257,6 @@ const
     inc(tbi,sizeof(word));
     if ppufile.change_endian then
       var16:=swapendian(var16);
-{$ifdef FPC_BIG_ENDIAN}
-    { Tokens seems to be swapped to little endian in compiler code }
-    var16:=swapendian(var16);
-{$endif}
     result:=var16;
   end;
 
@@ -2191,10 +2268,6 @@ const
     inc(tbi,sizeof(longint));
     if ppufile.change_endian then
       var32:=swapendian(var32);
-{$ifdef FPC_BIG_ENDIAN}
-    { Tokens seems to be swapped to little endian in compiler code }
-    var32:=swapendian(var32);
-{$endif}
     result:=var32;
   end;
 
@@ -2206,25 +2279,18 @@ const
     inc(tbi,sizeof(shortint));
     if ppufile.change_endian then
       var16:=swapendian(var16);
-{$ifdef FPC_BIG_ENDIAN}
-    { Tokens seems to be swapped to little endian in compiler code }
-    var16:=swapendian(var16);
-{$endif}
     result:=var16;
   end;
 
   procedure tokenreadset(var b;size : longint);
-{$ifdef FPC_BIG_ENDIAN}
   var
     i : longint;
-{$endif}
   begin
     move(tokenbuf[tbi],b,size);
     inc(tbi,size);
-{$ifdef FPC_BIG_ENDIAN}
-    for i:=0 to size-1 do
-      Pbyte(@b)[i]:=reverse_byte(Pbyte(@b)[i]);
-{$endif}
+    if ppufile.change_endian then
+      for i:=0 to size-1 do
+        Pbyte(@b)[i]:=reverse_byte(Pbyte(@b)[i]);
   end;
 
   function gettokenbufbyte : byte;
@@ -2258,10 +2324,6 @@ const
         inc(tbi,sizeof(int64));
         if ppufile.change_endian then
           var64:=swapendian(var64);
-{$ifdef FPC_BIG_ENDIAN}
-        { Tokens seems to be swapped to little endian in compiler code }
-        var64:=swapendian(var64);
-{$endif}
         result:=var64;
       end
     else if CpuAddrBitSize[cpu]=32 then
@@ -2270,10 +2332,6 @@ const
         inc(tbi,sizeof(longint));
         if ppufile.change_endian then
           var32:=swapendian(var32);
-{$ifdef FPC_BIG_ENDIAN}
-        { Tokens seems to be swapped to little endian in compiler code }
-        var32:=swapendian(var32);
-{$endif}
         result:=var32;
       end
     else if CpuAddrBitSize[cpu]=16 then
@@ -2282,10 +2340,6 @@ const
         inc(tbi,sizeof(smallint));
         if ppufile.change_endian then
           var16:=swapendian(var16);
-{$ifdef FPC_BIG_ENDIAN}
-        { Tokens seems to be swapped to little endian in compiler code }
-        var16:=swapendian(var16);
-{$endif}
         result:=var16;
       end
     else
@@ -2643,6 +2697,9 @@ begin
       write  ([space,' Orig. GenericDef : ']);
       readderef('');
     end;
+  space:=space+'    ';
+  readattrs(def);
+  delete(space,1,4);
   current_defoptions:=defoptions;
 end;
 
@@ -3606,6 +3663,7 @@ begin
            begin
              def:=TPpuPropDef.Create(ParentDef);
              readcommonsym('Property ',def);
+             write  ([space,' Prop Options : ']);
              propoptions:=readpropertyoptions;
              if ppo_overrides in propoptions then
                begin
@@ -3621,6 +3679,7 @@ begin
              write  ([space,'   Index Type : ']);
              readderef('');
              { palt_none }
+             write  ([space,'   Noneaccess : ']);
              readpropaccesslist('');
              write  ([space,'   Readaccess : ']);
              readpropaccesslist(space+'         Sym: ',TPpuPropDef(def).Getter);
@@ -3650,6 +3709,8 @@ begin
              WriteError('!! Skipping unsupported PPU Entry in Symbols: '+IntToStr(b));
            end;
        end;
+       if assigned(def) then
+         readsymsubentries(def);
        if (def <> nil) and (def.Parent = nil) then
          def.Free;
        if not EndOfEntry then
@@ -4025,7 +4086,9 @@ begin
              readsymtable('parast', TPpuProcDef(def));
              { localst }
              if (pio_has_inlininginfo in implprocoptions) then
-                readsymtable('localst');
+                readsymtable('inline localst')
+             else if (df_generic in defoptions) then
+                readsymtable('generic localst');
              if (pio_has_inlininginfo in implprocoptions) then
                readnodetree;
              delete(space,1,4);
@@ -4125,8 +4188,7 @@ begin
              if not(df_copied_def in current_defoptions) then
                begin
                  space:='    '+space;
-                 readrecsymtableoptions;
-                 readsymtable('fields',TPpuRecordDef(def));
+                 readrecordsymtable('fields',TPpuRecordDef(def));
                  Delete(space,1,4);
                end;
              if not EndOfEntry then
@@ -4245,8 +4307,7 @@ begin
                begin
                  {read the record definitions and symbols}
                  space:='    '+space;
-                 readrecsymtableoptions;
-                 readsymtable('fields',objdef);
+                 readrecordsymtable('fields',objdef);
                  Delete(space,1,4);
               end;
              if not EndOfEntry then
@@ -4373,6 +4434,8 @@ begin
              WriteError('!! Skipping unsupported PPU Entry in definitions: '+IntToStr(b));
            end;
        end;
+       if assigned(def) then
+         readdefsubentries(def);
        if (def <> nil) and (def.Parent = nil) then
          def.Free;
        if not EndOfEntry then

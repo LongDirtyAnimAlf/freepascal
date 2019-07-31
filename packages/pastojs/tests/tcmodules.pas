@@ -4799,15 +4799,21 @@ begin
   Add([
   'type',
   '  TProc = reference to procedure;',
+  '  TEvent = procedure of object;',
   '  TObject = class',
   '    Size: word;',
   '    function GetIt: TProc;',
+  '    procedure DoIt; virtual; abstract;',
   '  end;',
   'function TObject.GetIt: TProc;',
   'begin',
   '  Result:=procedure',
+  '    var p: TEvent;',
   '    begin',
   '      Size:=Size;',
+  '      Size:=Self.Size;',
+  '      p:=@DoIt;',
+  '      p:=@Self.DoIt;',
   '    end;',
   'end;',
   'begin']);
@@ -4824,7 +4830,11 @@ begin
     '    var $Self = this;',
     '    var Result = null;',
     '    Result = function () {',
+    '      var p = null;',
     '      $Self.Size = $Self.Size;',
+    '      $Self.Size = $Self.Size;',
+    '      p = rtl.createCallback($Self, "DoIt");',
+    '      p = rtl.createCallback($Self, "DoIt");',
     '    };',
     '    return Result;',
     '  };',
@@ -5903,6 +5913,7 @@ begin
   '  if c in [''a''..''z'',''_''] then ;',
   '  if ''b'' in [''a''..''z'',''_''] then ;',
   '  if ''Я'' in sc then ;',
+  '  if 3=ord('' '') then ;',
   '']);
   ConvertProgram;
   CheckSource('TestSet_ConstChar',
@@ -5921,6 +5932,7 @@ begin
     'if ($mod.c.charCodeAt() in rtl.createSet(null, 97, 122, 95)) ;',
     'if (98 in rtl.createSet(null, 97, 122, 95)) ;',
     'if (1071 in $mod.sc) ;',
+    'if (3 === 32) ;',
     '']));
 end;
 
@@ -10465,6 +10477,12 @@ begin
   'procedure Fly(d: jsvalue; const c: jsvalue);',
   'begin',
   'end;',
+  'procedure Run(d: TRecord; const c: TRecord; var v: TRecord);',
+  'begin',
+  '  if jsvalue(d) then ;',
+  '  if jsvalue(c) then ;',
+  '  if jsvalue(v) then ;',
+  'end;',
   'var',
   '  Jv: jsvalue;',
   '  Rec: trecord;',
@@ -10473,6 +10491,8 @@ begin
   '  jv:=rec;',
   '  Fly(rec,rec);',
   '  Fly(@rec,@rec);',
+  '  if jsvalue(Rec) then ;',
+  '  Run(trecord(jv),trecord(jv),rec);',
   '']);
   ConvertProgram;
   CheckSource('TestRecord_JSValue',
@@ -10489,6 +10509,11 @@ begin
     '});',
     'this.Fly = function (d, c) {',
     '};',
+    'this.Run = function (d, c, v) {',
+    '  if (d) ;',
+    '  if (c) ;',
+    '  if (v) ;',
+    '};',
     'this.Jv = undefined;',
     'this.Rec = $mod.TRecord.$new();',
     '']),
@@ -10497,6 +10522,8 @@ begin
     '$mod.Jv = $mod.Rec;',
     '$mod.Fly($mod.TRecord.$clone($mod.Rec), $mod.Rec);',
     '$mod.Fly($mod.Rec, $mod.Rec);',
+    'if ($mod.Rec) ;',
+    '$mod.Run($mod.TRecord.$clone(rtl.getObject($mod.Jv)), rtl.getObject($mod.Jv), $mod.Rec);',
     '']));
 end;
 
@@ -10893,8 +10920,9 @@ begin
   '{$modeswitch AdvancedRecords}',
   'type',
   '  TRec = record',
-  '    class var Fx: longint;',
-  '    class var Fy: longint;',
+  '    class var',
+  '      Fx: longint;',
+  '      Fy: longint;',
   '    class function GetInt: longint; static;',
   '    class procedure SetInt(Value: longint); static;',
   '    class procedure DoIt; static;',
@@ -13210,6 +13238,7 @@ begin
   Add('  tcontrol(obj):=tcontrol(tcontrol(obj).getit());');
   Add('  tcontrol(obj):=tcontrol(tcontrol(obj).getit(1));');
   Add('  tcontrol(obj):=tcontrol(tcontrol(tcontrol(obj).getit).arr[2]);');
+  Add('  obj:=tcontrol(nil);');
   ConvertProgram;
   CheckSource('TestClass_TypeCast',
     LinesToStr([ // statements
@@ -13248,6 +13277,7 @@ begin
     '$mod.Obj = $mod.Obj.GetIt(0);',
     '$mod.Obj = $mod.Obj.GetIt(1);',
     '$mod.Obj = $mod.Obj.GetIt(0).Arr[2];',
+    '$mod.Obj = null;',
     '']));
 end;
 
@@ -25796,6 +25826,10 @@ procedure TTestModule.TestJSValue_If;
 begin
   StartProgram(false);
   Add([
+  'procedure Fly(var u);',
+  'begin',
+  '  if jsvalue(u) then ;',
+  'end;',
   'var',
   '  v: jsvalue;',
   'begin',
@@ -25806,6 +25840,9 @@ begin
   ConvertProgram;
   CheckSource('TestJSValue_If',
     LinesToStr([ // statements
+    'this.Fly = function (u) {',
+    '  if (u.get()) ;',
+    '};',
     'this.v = undefined;',
     '']),
     LinesToStr([ // $mod.$main

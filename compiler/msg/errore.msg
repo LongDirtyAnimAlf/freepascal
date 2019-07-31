@@ -436,7 +436,7 @@ scan_n_changecputype=02105_N_Changed CPU type to be consistent with specified co
 #
 # Parser
 #
-# 03348 is the last used one
+# 03351 is the last used one
 #
 % \section{Parser messages}
 % This section lists all parser messages. The parser takes care of the
@@ -1594,10 +1594,12 @@ parser_e_only_static_members_via_object_type=03349_E_Only static methods and sta
 %   TObj.test;
 % \end{verbatim}
 % \var{test} is not a static method and hence cannot be called through a type, but only using an instance.
-parse_e_callthrough_varargs=03350_E_Cannot redeclare C-style variadic function "$1" as external on this platform; make its first declaration already external
+parser_e_callthrough_varargs=03350_E_Cannot redeclare C-style variadic function "$1" as external on this platform; make its first declaration already external
 % If a function is declared normally in the interface or as a forward declaration, and then later as external, the compiler
 % must generate a stub that calls the external function. Due to code generation limitations, this cannot be done on some
 % platforms. Even on platforms where it is supported, this is quite inefficient.
+parser_e_unbound_attribute=03351_E_Unbound custom attribute: "$1".
+% A custom attribute is defined, but there is no identifier to bind it to.
 %
 % \end{description}
 %

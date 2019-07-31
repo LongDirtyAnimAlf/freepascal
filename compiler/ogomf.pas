@@ -101,9 +101,11 @@ interface
       TOmfObjData = class(TObjData)
       private
         FMainSource: TPathStr;
+        FImportLibraryList:TFPHashObjectList;
         class function CodeSectionName(const aname:string): string;
       public
         constructor create(const n:string);override;
+        destructor destroy;override;
         function sectiontype2options(atype:TAsmSectiontype):TObjSectionOptions;override;
         function sectiontype2align(atype:TAsmSectiontype):longint;override;
         function sectiontype2class(atype:TAsmSectiontype):string;
@@ -111,7 +113,9 @@ interface
         function createsection(atype:TAsmSectionType;const aname:string='';aorder:TAsmSectionOrder=secorder_default):TObjSection;override;
         function reffardatasection:TObjSection;
         procedure writeReloc(Data:TRelocDataInt;len:aword;p:TObjSymbol;Reloctype:TObjRelocationType);override;
+        procedure AddImportSymbol(const libname,symname,symmangledname:TCmdStr;OrdNr: longint;isvar:boolean);
         property MainSource: TPathStr read FMainSource;
+        property ImportLibraryList:TFPHashObjectList read FImportLibraryList;
       end;
 
       { TOmfObjOutput }
@@ -167,7 +171,7 @@ interface
         function ReadPubDef(RawRec: TOmfRawRecord; objdata:TObjData): Boolean;
         function ReadModEnd(RawRec: TOmfRawRecord; objdata:TObjData): Boolean;
         function ReadLeOrLiDataAndFixups(RawRec: TOmfRawRecord; objdata:TObjData): Boolean;
-        function ReadImpDef(Rec: TOmfRecord_COMENT): Boolean;
+        function ReadImpDef(Rec: TOmfRecord_COMENT; objdata:TObjData): Boolean;
         function ReadExpDef(Rec: TOmfRecord_COMENT): Boolean;
         function ImportOmfFixup(objdata: TObjData; objsec: TOmfObjSection; Fixup: TOmfSubRecord_FIXUP): Boolean;
 
@@ -473,6 +477,7 @@ interface
         constructor create;override;
         destructor destroy;override;
 
+        procedure GenerateLibraryImports(ImportLibraryList:TFPHashObjectList);override;
         function writeData:boolean;override;
       end;
 
@@ -732,6 +737,13 @@ implementation
         CObjSection:=TOmfObjSection;
         createsectiongroup('DGROUP');
         FMainSource:=current_module.mainsource;
+        FImportLibraryList:=TFPHashObjectList.Create(true);
+      end;
+
+    destructor TOmfObjData.destroy;
+      begin
+        FImportLibraryList.Free;
+        inherited destroy;
       end;
 
     function TOmfObjData.sectiontype2options(atype: TAsmSectiontype): TObjSectionOptions;
@@ -905,6 +917,20 @@ implementation
               CurrObjSec.ObjRelocations.Add(objreloc);
             end;
         CurrObjSec.write(data,len);
+      end;
+
+    procedure TOmfObjData.AddImportSymbol(const libname, symname,
+      symmangledname: TCmdStr; OrdNr: longint; isvar: boolean);
+      var
+        ImportLibrary : TImportLibrary;
+        ImportSymbol  : TFPHashObject;
+      begin
+        ImportLibrary:=TImportLibrary(ImportLibraryList.Find(libname));
+        if not assigned(ImportLibrary) then
+          ImportLibrary:=TImportLibrary.Create(ImportLibraryList,libname);
+        ImportSymbol:=TFPHashObject(ImportLibrary.ImportSymbolList.Find(symname));
+        if not assigned(ImportSymbol) then
+          ImportSymbol:=TImportSymbol.Create(ImportLibrary.ImportSymbolList,symname,symmangledname,OrdNr,isvar);
       end;
 
 {****************************************************************************
@@ -1850,10 +1876,18 @@ implementation
         Result:=True;
       end;
 
-    function TOmfObjInput.ReadImpDef(Rec: TOmfRecord_COMENT): Boolean;
+    function TOmfObjInput.ReadImpDef(Rec: TOmfRecord_COMENT; objdata: TObjData): Boolean;
+      var
+        ImpDefRec: TOmfRecord_COMENT_IMPDEF;
       begin
-        {todo: implement}
+        ImpDefRec:=TOmfRecord_COMENT_IMPDEF.Create;
+        ImpDefRec.DecodeFrom(Rec);
+        if ImpDefRec.ImportByOrdinal then
+          TOmfObjData(objdata).AddImportSymbol(ImpDefRec.ModuleName,'',ImpDefRec.InternalName,ImpDefRec.Ordinal,false)
+        else
+          TOmfObjData(objdata).AddImportSymbol(ImpDefRec.ModuleName,ImpDefRec.Name,ImpDefRec.InternalName,0,false);
         Result:=True;
+        ImpDefRec.Free;
       end;
 
     function TOmfObjInput.ReadExpDef(Rec: TOmfRecord_COMENT): Boolean;
@@ -2247,7 +2281,7 @@ implementation
                         begin
                           case Ord(FCOMENTRecord.CommentString[1]) of
                             CC_OmfExtension_IMPDEF:
-                              if not ReadImpDef(FCOMENTRecord) then
+                              if not ReadImpDef(FCOMENTRecord,objdata) then
                                 exit;
                             CC_OmfExtension_EXPDEF:
                               if not ReadExpDef(FCOMENTRecord) then
@@ -3511,6 +3545,31 @@ cleanup:
       begin
         FHeader.Free;
         inherited destroy;
+      end;
+
+    procedure TNewExeOutput.GenerateLibraryImports(ImportLibraryList: TFPHashObjectList);
+      var
+        i,j: longint;
+        ImportLibrary: TImportLibrary;
+        ImportSymbol: TImportSymbol;
+        exesym: TExeSymbol;
+      begin
+        for i:=0 to ImportLibraryList.Count-1 do
+          begin
+            ImportLibrary:=TImportLibrary(ImportLibraryList[i]);
+            for j:=0 to ImportLibrary.ImportSymbolList.Count-1 do
+              begin
+                ImportSymbol:=TImportSymbol(ImportLibrary.ImportSymbolList[j]);
+                exesym:=TExeSymbol(ExeSymbolList.Find(ImportSymbol.MangledName));
+                if assigned(exesym) and
+                   (exesym.State<>symstate_defined) then
+                  begin
+                    ImportSymbol.CachedExeSymbol:=exesym;
+                    exesym.State:=symstate_defined;
+                  end;
+              end;
+          end;
+        PackUnresolvedExeSymbols('after DLL imports');
       end;
 
     function TNewExeOutput.writeData: boolean;

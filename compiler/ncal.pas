@@ -486,13 +486,13 @@ implementation
           end;
 
         { create a temp to store parameter values }
-        vardispatchparadef:=crecorddef.create_global_internal('',voidpointertype.size,voidpointertype.size,current_settings.alignment.maxCrecordalign);
+        vardispatchparadef:=crecorddef.create_global_internal('',voidpointertype.size,voidpointertype.size);
         { the size will be set once the vardistpatchparadef record has been completed }
         params:=ctempcreatenode.create(vardispatchparadef,0,tt_persistent,false);
         addstatement(statements,params);
 
         tcb:=ctai_typedconstbuilder.create([tcalo_make_dead_strippable,tcalo_new_section]);
-        tcb.begin_anonymous_record('',1,sizeof(pint),1,1);
+        tcb.begin_anonymous_record('',1,sizeof(pint),1);
 
         if not variantdispatch then  { generate a tdispdesc record }
         begin
@@ -4253,11 +4253,12 @@ implementation
             st:=procdefinition.owner;
             while (st.symtabletype in [ObjectSymtable,recordsymtable]) do
               st:=st.defowner.owner;
-            if (pi_uses_static_symtable in tprocdef(procdefinition).inlininginfo^.flags) and
+            if not(tf_supports_hidden_symbols in target_info.flags) and
+               (pi_uses_static_symtable in tprocdef(procdefinition).inlininginfo^.flags) and
                (st.symtabletype=globalsymtable) and
                (not st.iscurrentunit) then
               begin
-                Comment(V_lineinfo+V_Debug,'Not inlining "'+tprocdef(procdefinition).procsym.realname+'", references static symtable');
+                Comment(V_lineinfo+V_Debug,'Not inlining "'+tprocdef(procdefinition).procsym.realname+'", references private symbols from other unit');
                 exclude(callnodeflags,cnf_do_inline);
               end;
             para:=tcallparanode(parameters);

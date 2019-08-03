@@ -73,6 +73,9 @@ implementation
 
       TInternalLinkerWin16=class(tinternallinker)
       protected
+        function GetCodeSize(aExeOutput: TExeOutput): QWord;override;
+        function GetDataSize(aExeOutput: TExeOutput): QWord;override;
+        function GetBssSize(aExeOutput: TExeOutput): QWord;override;
         procedure DefaultLinkScript;override;
       public
         constructor create;override;
@@ -334,6 +337,24 @@ end;
                                TInternalLinkerWin16
 ****************************************************************************}
 
+function TInternalLinkerWin16.GetCodeSize(aExeOutput: TExeOutput): QWord;
+begin
+  { todo }
+  Result:=0;
+end;
+
+function TInternalLinkerWin16.GetDataSize(aExeOutput: TExeOutput): QWord;
+begin
+  { todo }
+  Result:=0;
+end;
+
+function TInternalLinkerWin16.GetBssSize(aExeOutput: TExeOutput): QWord;
+begin
+  { todo }
+  Result:=0;
+end;
+
 procedure TInternalLinkerWin16.DefaultLinkScript;
 var
   s: TCmdStr;
@@ -363,9 +384,11 @@ begin
   end;
   LinkScript.Concat('ENDGROUP');
 
-  LinkScript.Concat('EXESECTION .MZ_flat_content');
+  LinkScript.Concat('EXESECTION .NE_code');
   LinkScript.Concat('  OBJSECTION _TEXT||CODE');
   LinkScript.Concat('  OBJSECTION *||CODE');
+  LinkScript.Concat('ENDEXESECTION');
+  LinkScript.Concat('EXESECTION .NE_data');
   LinkScript.Concat('  OBJSECTION *||FAR_DATA');
   LinkScript.Concat('  OBJSECTION _NULL||BEGDATA');
   LinkScript.Concat('  OBJSECTION _AFTERNULL||BEGDATA');

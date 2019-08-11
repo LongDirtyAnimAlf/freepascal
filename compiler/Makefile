@@ -496,6 +496,14 @@ endif
 NOCPUDEF=1
 MSGFILE=msg/error$(FPCLANG).msg
 SVNVERSION:=$(firstword $(wildcard $(addsuffix /svnversion$(SRCEXEEXT),$(SEARCHPATH))))
+PPUDUMPPROG:=$(firstword $(strip $(wildcard $(addsuffix /ppudump$(SRCEXEEXT),$(SEARCHPATH)))))
+ifndef PPUDUMP
+ifdef PPUDUMPPROG
+PPUDUMP=$(PPUDUMPPROG)
+else
+PPUDUMP=ppudump
+endif
+endif
 REVINC:=$(wildcard revision.inc)
 ifneq ($(REVINC),)
 override LOCALOPT+=-dREVINC
@@ -4215,7 +4223,7 @@ ifdef CMP
 override DIFF:=$(CMP) -i218
 endif
 endif
-ifeq ($(findstring 2.4.,$(FPC_VERSION)),)
+ifneq ($(CYCLELEVEL),1)
 ifndef ALLOW_WARNINGS
 override LOCALOPT+=-Sew
 endif
@@ -4693,7 +4701,7 @@ rtlppulogs : $(RTLPPULOGLIST)
 vpath %.ppu $(PPUDIR) $(RTLPPUDIR) $(ALLPPUDIR)
 vpath %.log-ppu $(PPUDIR) $(RTLPPUDIR) $(ALLPPUDIR)
 %.log-ppu : %.ppu
-	ppudump -VA -M $< > $@
+	$(PPUDUMP) -VA -M $< > $@
 ./utils/ppudump$(EXEEXT):
 	$(MAKE) -C $(COMPILERUTILSDIR) ppudump$(EXEEXT)
 ppuinfo :

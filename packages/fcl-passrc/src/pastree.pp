@@ -102,7 +102,7 @@ type
   protected
     procedure Accept(Visitor: TPassTreeVisitor); virtual;
   public
-    Property CustomData : TObject Read FData Write FData;
+    Property CustomData: TObject Read FData Write FData;
   end;
   TPasElementBaseClass = class of TPasElementBase;
 
@@ -550,7 +550,7 @@ type
     function ElementTypeName: string; override;
   end;
 
-  { TPasGenericTemplateType }
+  { TPasGenericTemplateType - type param of a generic }
 
   TPasGenericTemplateType = Class(TPasType)
   public
@@ -564,7 +564,7 @@ type
     Constraints: TPasExprArray;
   end;
 
-  { TPasGenericType }
+  { TPasGenericType - abstract base class for all types which can be generics }
 
   TPasGenericType = class(TPasType)
   private
@@ -636,6 +636,8 @@ type
   { TPasArrayType }
 
   TPasArrayType = class(TPasGenericType)
+  protected
+    procedure SetParent(const AValue: TPasElement); override;
   public
     destructor Destroy; override;
     function ElementTypeName: string; override;
@@ -840,7 +842,7 @@ type
     function ElementTypeName: string; override;
     function GetDeclaration(full : boolean) : string; override;
     procedure GetArguments(List : TStrings);
-    function CreateArgument(const AName, AUnresolvedTypeName: string):TPasArgument;
+    function CreateArgument(const AName, AUnresolvedTypeName: string): TPasArgument; // not used by TPasParser
     procedure ForEachCall(const aMethodCall: TOnForEachPasElement;
       const Arg: Pointer); override;
   public
@@ -1401,11 +1403,11 @@ type
     procedure ForEachCall(const aMethodCall: TOnForEachPasElement;
       const Arg: Pointer); override;
   public
-    Elements: TFPList;    // list of TPasImplElement and maybe one TPasImplCaseElse
+    Elements: TFPList;    // list of TPasImplElement
   end;
   TPasImplBlockClass = class of TPasImplBlock;
 
-  { TPasImplStatement }
+  { TPasImplStatement - base class }
 
   TPasImplStatement = class(TPasImplBlock)
   public
@@ -1625,7 +1627,7 @@ type
     procedure ClearTypeReferences(aType: TPasElement); override;
   public
     VarEl: TPasVariable; // can be nil
-    TypeEl : TPasType;
+    TypeEl : TPasType; // if VarEl<>nil then TypeEl=VarEl.VarType
     Body: TPasImplElement;
     Function VariableName : String;
     Function TypeName: string;
@@ -3130,6 +3132,28 @@ begin
   ReleaseAndNil(TPasElement(DestType){$IFDEF CheckPasTreeRefCount},'TPasAliasType.DestType'{$ENDIF});
   ReleaseAndNil(TPasElement(Expr){$IFDEF CheckPasTreeRefCount},'TPasAliasType.Expr'{$ENDIF});
   inherited Destroy;
+end;
+
+procedure TPasArrayType.SetParent(const AValue: TPasElement);
+var
+  CurArr: TPasArrayType;
+begin
+  if (AValue=nil) and (Parent<>nil) then
+    begin
+    // parent is cleared
+    // -> clear all references to this array (releasing loops)
+    CurArr:=Self;
+    while CurArr.ElType is TPasArrayType do
+      begin
+      if CurArr.ElType=Self then
+        begin
+        ReleaseAndNil(TPasElement(CurArr.ElType){$IFDEF CheckPasTreeRefCount},'TPasClassType.AncestorType'{$ENDIF});
+        break;
+        end;
+      CurArr:=TPasArrayType(CurArr.ElType);
+      end;
+    end;
+  inherited SetParent(AValue);
 end;
 
 destructor TPasArrayType.Destroy;

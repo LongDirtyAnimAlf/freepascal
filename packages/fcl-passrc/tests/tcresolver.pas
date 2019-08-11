@@ -68,7 +68,7 @@ type
     procedure ReleaseUsedUnits;
     function CreateElement(AClass: TPTreeElement; const AName: String;
       AParent: TPasElement; AVisibility: TPasMemberVisibility;
-      const ASrcPos: TPasSourcePos): TPasElement;
+      const ASrcPos: TPasSourcePos; TypeParams: TFPList = nil): TPasElement;
       overload; override;
     function FindUnit(const AName, InFilename: String; NameExpr,
       InFileExpr: TPasExpr): TPasModule; override;
@@ -763,6 +763,7 @@ type
 
     // arrays
     Procedure TestDynArrayOfLongint;
+    Procedure TestDynArrayOfSelfFail;
     Procedure TestStaticArray;
     Procedure TestStaticArrayOfChar;
     Procedure TestStaticArrayOfCharDelphi;
@@ -1012,9 +1013,9 @@ end;
 
 function TTestEnginePasResolver.CreateElement(AClass: TPTreeElement;
   const AName: String; AParent: TPasElement; AVisibility: TPasMemberVisibility;
-  const ASrcPos: TPasSourcePos): TPasElement;
+  const ASrcPos: TPasSourcePos; TypeParams: TFPList): TPasElement;
 begin
-  Result:=inherited CreateElement(AClass, AName, AParent, AVisibility, ASrcPos);
+  Result:=inherited CreateElement(AClass, AName, AParent, AVisibility, ASrcPos, TypeParams);
   if (FModule=nil) and AClass.InheritsFrom(TPasModule) then
     Module:=TPasModule(Result);
 end;
@@ -13754,6 +13755,14 @@ begin
   Add('  if a[3]=a[4] then ;');
   Add('  a[a[5]]:=a[a[6]];');
   ParseProgram;
+end;
+
+procedure TTestResolver.TestDynArrayOfSelfFail;
+begin
+  StartProgram(false);
+  Add('type TIntArray = array of TIntArray;');
+  Add('begin');
+  CheckResolverException(sIllegalExpression,nIllegalExpression);
 end;
 
 procedure TTestResolver.TestStaticArray;

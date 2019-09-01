@@ -424,7 +424,8 @@ implementation
                             end;
                           uvoid,
                           pasbool1,pasbool8,pasbool16,pasbool32,pasbool64,
-                          bool8bit,bool16bit,bool32bit,bool64bit:
+                          bool8bit,bool16bit,bool32bit,bool64bit,
+                          scurrency:
                             eq:=te_equal;
                           else
                             internalerror(200210061);
@@ -1027,6 +1028,11 @@ implementation
                                       end
                                     else if subeq>te_convert_l6 then
                                       eq:=pred(subeq)
+                                    else if subeq=te_convert_operator then
+                                      { the operater needs to be applied by element, so we tell
+                                        the caller that it's some unpreffered conversion and let
+                                        it handle the per-element stuff }
+                                      eq:=te_convert_l6
                                     else
                                       eq:=subeq;
                                    doconv:=tc_arrayconstructor_2_dynarray;
@@ -2495,6 +2501,13 @@ implementation
           otherdef:=find_real_class_definition(tobjectdef(otherdef),false);
         realself:=find_real_class_definition(curdef,false);
         if realself=otherdef then
+          begin
+            result:=true;
+            exit;
+          end;
+
+        if (realself.objecttype in [odt_objcclass,odt_objcprotocol]) and
+           (otherdef=objc_idtype) then
           begin
             result:=true;
             exit;

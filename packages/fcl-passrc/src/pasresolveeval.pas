@@ -160,7 +160,7 @@ const
   nIllegalQualifierAfter = 3084;
   nIllegalQualifierInFrontOf = 3085;
   nIllegalQualifierWithin = 3086;
-  nMethodClassXInOtherUnitY = 3087;
+  nClassXNotFoundInThisModule = 3087;
   nClassMethodsMustBeStaticInX = 3088;
   nCannotMixMethodResolutionAndDelegationAtX = 3089;
   nImplementsDoesNotSupportArrayProperty = 3101;
@@ -195,6 +195,11 @@ const
   nXIsNotAValidConstraint = 3129;
   nWrongNumberOfParametersForGenericType = 3130;
   nGenericsWithoutSpecializationAsType = 3131;
+  nDeclOfXDiffersFromPrevAtY = 3132;
+  nTypeParamXIsMissingConstraintY = 3133;
+  nTypeParamXIsNotCompatibleWithY = 3134;
+  nTypeParamXMustSupportIntfY = 3135;
+  nTypeParamsNotAllowedOnX = 3136;
 
   // using same IDs as FPC
   nVirtualMethodXHasLowerVisibility = 3250; // was 3050
@@ -302,7 +307,7 @@ resourcestring
   sIllegalQualifierAfter = 'illegal qualifier "%s" after "%s"';
   sIllegalQualifierInFrontOf = 'illegal qualifier "%s" in front of "%s"';
   sIllegalQualifierWithin = 'illegal qualifier "%s" within "%s"';
-  sMethodClassXInOtherUnitY = 'method class "%s" in other unit "%s"';
+  sClassXNotFoundInThisModule = 'class "%s" not found in this module';
   sNoMatchingImplForIntfMethodXFound = 'No matching implementation for interface method "%s" found';
   sClassMethodsMustBeStaticInX = 'Class methods must be static in %s';
   sCannotMixMethodResolutionAndDelegationAtX = 'Cannot mix method resolution and delegation at %s';
@@ -337,6 +342,11 @@ resourcestring
   sXIsNotAValidConstraint = '"%s" is not a valid constraint';
   sWrongNumberOfParametersForGenericType = 'wrong number of parameters for generic type %s';
   sGenericsWithoutSpecializationAsType = 'Generics without specialization cannot be used as a type for a %s';
+  sDeclOfXDiffersFromPrevAtY = 'Declaration of "%s" differs from previous declaration at %s';
+  sTypeParamXIsMissingConstraintY = 'Type parameter "%s" is missing constraint "%s"';
+  sTypeParamXIsNotCompatibleWithY = 'Type parameter "%s" is not compatible with type "%s"';
+  sTypeParamXMustSupportIntfY = 'Type parameter "%s" must support interface "%s"';
+  sTypeParamsNotAllowedOnX = 'Type parameters not allowed on %s';
 
 type
   { TResolveData - base class for data stored in TPasElement.CustomData }
@@ -776,6 +786,8 @@ function CodePointToString(CodePoint: longword): String;
 function CodePointToUnicodeString(u: longword): UnicodeString;
 
 function GetObjName(o: TObject): string;
+function GetObjPath(o: TObject): string;
+function GetTypeParamCommas(Cnt: integer): string;
 function dbgs(const Flags: TResEvalFlags): string; overload;
 function dbgs(v: TResEvalValue): string; overload;
 
@@ -993,13 +1005,69 @@ begin
 end;
 
 function GetObjName(o: TObject): string;
+var
+  GenType: TPasGenericType;
 begin
   if o=nil then
     Result:='nil'
   else if o is TPasElement then
-    Result:=TPasElement(o).Name+':'+o.ClassName
+    begin
+    Result:=TPasElement(o).Name;
+    if o is TPasGenericType then
+      begin
+      GenType:=TPasGenericType(o);
+      if (GenType.GenericTemplateTypes<>nil)
+          and (GenType.GenericTemplateTypes.Count>0) then
+        Result:=Result+GetTypeParamCommas(GenType.GenericTemplateTypes.Count);
+      end;
+    Result:=Result+':'+o.ClassName;
+    end
   else
     Result:=o.ClassName;
+end;
+
+function GetObjPath(o: TObject): string;
+var
+  El: TPasElement;
+  GenType: TPasGenericType;
+begin
+  if o is TPasElement then
+    begin
+    El:=TPasElement(o);
+    Result:=':'+El.ClassName;
+    while El<>nil do
+      begin
+      if El<>o then
+        Result:='.'+Result;
+      if El is TPasGenericType then
+        begin
+        GenType:=TPasGenericType(El);
+        if (GenType.GenericTemplateTypes<>nil)
+            and (GenType.GenericTemplateTypes.Count>0) then
+          Result:=GetTypeParamCommas(GenType.GenericTemplateTypes.Count)+Result;
+        end;
+      if El.Name<>'' then
+        begin
+        if IsValidIdent(El.Name) then
+          Result:=El.Name+Result
+        else
+          Result:='"'+El.Name+'"'+Result;
+        end
+      else
+        Result:='['+El.ClassName+']'+Result;
+      El:=El.Parent;
+      end;
+    end
+  else
+    Result:=GetObjName(o);
+end;
+
+function GetTypeParamCommas(Cnt: integer): string;
+begin
+  if Cnt<=0 then
+    Result:=''
+  else
+    Result:='<'+StringOfChar(',',Cnt-1)+'>';
 end;
 
 function dbgs(const Flags: TResEvalFlags): string;

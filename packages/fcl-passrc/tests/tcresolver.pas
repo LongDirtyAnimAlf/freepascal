@@ -360,6 +360,7 @@ type
     Procedure TestUnitUseIntf;
     Procedure TestUnitUseImplFail;
     Procedure TestUnit_DuplicateUsesFail;
+    Procedure TestUnit_DuplicateUsesIntfImplFail;
     Procedure TestUnit_NestedFail;
     Procedure TestUnitUseDotted;
     Procedure TestUnit_ProgramDefaultNamespace;
@@ -452,6 +453,7 @@ type
     Procedure TestProc_ImplicitCalls;
     Procedure TestProc_Absolute;
     Procedure TestProc_LocalInit;
+    Procedure TestProc_ExtNamePropertyFail;
 
     // anonymous procs
     Procedure TestAnonymousProc_Assign;
@@ -5674,6 +5676,28 @@ begin
     nParserDuplicateIdentifier);
 end;
 
+procedure TTestResolver.TestUnit_DuplicateUsesIntfImplFail;
+begin
+  AddModuleWithIntfImplSrc('unit2.pp',
+    LinesToStr([
+    'type number = longint;']),
+    LinesToStr([
+    '']));
+
+  StartUnit(true);
+  Add([
+  'interface',
+  'uses unit2;',
+  'var j: number;',
+  'implementation',
+  'uses unit2;',
+  'initialization',
+  '  if number(3) then ;',
+  '']);
+  CheckParserException('Duplicate identifier "unit2" at token ";" in file afile.pp at line 6 column 11',
+    nParserDuplicateIdentifier);
+end;
+
 procedure TTestResolver.TestUnit_NestedFail;
 begin
   AddModuleWithIntfImplSrc('unit2.pp',
@@ -5885,8 +5909,8 @@ begin
   '  if unit1.j1=0 then ;',
   '  if unitdots.unit1.j1=0 then ;',
   '']);
-  CheckResolverException('Duplicate identifier "unitdots.unit1" at unitdots.main1.pas(2,14)',
-    nDuplicateIdentifier);
+  CheckParserException('Duplicate identifier "unit1" at token ";" in file unitdots.main1.pas at line 2 column 27',
+    nParserDuplicateIdentifier);
 end;
 
 procedure TTestResolver.TestUnit_Unit1DotUnit2Fail;
@@ -7478,6 +7502,16 @@ begin
   'end;',
   'begin']);
   ParseProgram;
+end;
+
+procedure TTestResolver.TestProc_ExtNamePropertyFail;
+begin
+  StartProgram(false);
+  Add([
+  'procedure Foo; external name ''});'' property;',
+  'begin']);
+  CheckParserException('Expected ";" at token "property" in file afile.pp at line 2 column 36',
+    nParserExpectTokenError);
 end;
 
 procedure TTestResolver.TestAnonymousProc_Assign;
@@ -9126,7 +9160,7 @@ begin
   Add('begin');
   Add('end;');
   Add('begin');
-  CheckResolverException('identifier not found "TClassA"',nIdentifierNotFound);
+  CheckResolverException('class "TClassA" not found in this module',nClassXNotFoundInThisModule);
 end;
 
 procedure TTestResolver.TestClass_MethodInOtherUnitFail;
@@ -9147,7 +9181,8 @@ begin
   'begin',
   'end;',
   'begin']);
-  CheckResolverException('method class "TObject" in other unit "unit1"',nMethodClassXInOtherUnitY);
+  CheckResolverException('class "TObject" not found in this module',
+    nClassXNotFoundInThisModule);
 end;
 
 procedure TTestResolver.TestClass_MethodWithParams;
@@ -14475,6 +14510,10 @@ begin
   'type',
   '  TDynArrInt = array of byte;',
   '  TStaArrInt = array[1..2] of byte;',
+  'procedure Fly(var a: array of byte);',
+  'begin',
+  '  Fly(a);',
+  'end;',
   'procedure DoIt(a: array of byte);',
   'var',
   '  d: TDynArrInt;',
@@ -14485,6 +14524,8 @@ begin
   '  // d:=a; forbidden in delphi',
   '  DoIt(d);',
   '  DoIt(s);',
+  '  Fly(a);',
+  '  Fly(d);', // dyn array can be passed to a var open array
   'end;',
   'begin',
   '']);
@@ -15894,8 +15935,8 @@ begin
   Add([
   'type p = ^(red, green);',
   'begin']);
-  CheckResolverException('not yet implemented: pointer of anonymous type',
-    nNotYetImplemented);
+  CheckParserException('Expected "Identifier" at token "(" in file afile.pp at line 2 column 11',
+    nParserExpectTokenError);
 end;
 
 procedure TTestResolver.TestPointer_AssignPointerToClassFail;

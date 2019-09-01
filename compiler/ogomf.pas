@@ -351,6 +351,7 @@ interface
     const
       NewExeHeaderSize = $40;
       NewExeSegmentHeaderSize = 8;
+      NewExeRelocationRecordSize = 8;
 
     type
       TNewExeHeaderFlag = (
@@ -635,6 +636,81 @@ interface
         'Data');
 
     type
+      TNewExeRelocationAddressType = (
+        neratLoByte       = 0,    { low 8 bits of 16-bit offset }
+        neratSelector     = 2,    { 16-bit selector }
+        neratFarPointer   = 3,    { 16-bit selector:16-bit offset }
+        neratOffset       = 5,    { 16-bit offset }
+        neratFarPointer48 = 11,   { 16-bit selector:32-bit offset }
+        neratOffset32     = 13);  { 32-bit offset }
+      TNewExeRelocationType = (
+        nertInternalRef,
+        nertImportName,
+        nertImportOrdinal,
+        nertOsFixup);
+      TNewExeOsFixupType = (
+        neoftFIARQQ_FJARQQ = 1,
+        neoftFISRQQ_FJSRQQ = 2,
+        neoftFICRQQ_FJCRQQ = 3,
+        neoftFIERQQ        = 4,
+        neoftFIDRQQ        = 5,
+        neoftFIWRQQ        = 6);
+      TNewExeInternalRefSegmentType = (
+        neirstFixed,
+        neirstMovable);
+
+      { TNewExeRelocation }
+
+      TNewExeRelocation=class
+      private
+        FAddressType: TNewExeRelocationAddressType;
+        FRelocationType: TNewExeRelocationType;
+        FIsAdditive: Boolean;
+        FInternalRefSegmentType: TNewExeInternalRefSegmentType;
+        FOsFixupType: TNewExeOsFixupType;
+        FOffset: Word;
+        FImportModuleIndex: Word;
+        FImportNameIndex: Word;
+        FImportOrdinal: Word;
+        FInternalRefFixedSegmentNumber: Byte;
+        FInternalRefFixedSegmentOffset: Word;
+        FInternalRefMovableSegmentEntryTableIndex: Word;
+      public
+        procedure EncodeTo(dest: PByte);
+
+        property AddressType: TNewExeRelocationAddressType read FAddressType write FAddressType;
+        property RelocationType: TNewExeRelocationType read FRelocationType write FRelocationType;
+        property IsAdditive: Boolean read FIsAdditive write FIsAdditive;
+        property InternalRefSegmentType: TNewExeInternalRefSegmentType read FInternalRefSegmentType write FInternalRefSegmentType;
+        property OsFixupType: TNewExeOsFixupType read FOsFixupType write FOsFixupType;
+        property Offset: Word read FOffset write FOffset;
+        property ImportModuleIndex: Word read FImportModuleIndex write FImportModuleIndex;
+        property ImportNameIndex: Word read FImportNameIndex write FImportNameIndex;
+        property ImportOrdinal: Word read FImportOrdinal write FImportOrdinal;
+        property InternalRefFixedSegmentNumber: Byte read FInternalRefFixedSegmentNumber write FInternalRefFixedSegmentNumber;
+        property InternalRefFixedSegmentOffset: Word read FInternalRefFixedSegmentOffset write FInternalRefFixedSegmentOffset;
+        property InternalRefMovableSegmentEntryTableIndex: Word read FInternalRefMovableSegmentEntryTableIndex write FInternalRefMovableSegmentEntryTableIndex;
+      end;
+
+      { TNewExeRelocationList }
+
+      TNewExeRelocationList=class
+      private
+        FInternalList: TFPObjectList;
+        function GetCount: Integer;
+        function GetItem(Index: Integer): TNewExeRelocation;
+        function GetSize: QWord;
+        procedure SetCount(AValue: Integer);
+        procedure SetItem(Index: Integer; AValue: TNewExeRelocation);
+      public
+        constructor Create;
+        destructor Destroy; override;
+        procedure WriteTo(aWriter: TObjectWriter);
+        function Add(AObject: TNewExeRelocation): Integer;
+        property Size: QWord read GetSize;
+        property Count: Integer read GetCount write SetCount;
+        property Items[Index: Integer]: TNewExeRelocation read GetItem write SetItem; default;
+      end;
 
       { TNewExeSection }
 
@@ -642,25 +718,31 @@ interface
       private
         FEarlySize: QWord;
         FStackSize: QWord;
-        FLocalHeapSize: QWord;
         FExeMetaSec: TNewExeMetaSection;
         FMemBasePos: Word;
         FDataPosSectors: Word;
-        FMinAllocSize: QWord;
         FNewExeSegmentFlags: TNewExeSegmentFlags;
+        FSizeInFile: QWord;
+        FRelocations: TNewExeRelocationList;
+        function GetMinAllocSize: QWord;
+        function GetNewExeSegmentFlags: TNewExeSegmentFlags;
       public
+        constructor create(AList:TFPHashObjectList;const AName:string);override;
+        destructor destroy;override;
+
         procedure WriteHeaderTo(aWriter: TObjectWriter);
         function MemPosStr(AImageBase: qword): string;override;
         procedure AddObjSection(objsec:TObjSection;ignoreprops:boolean=false);override;
         function CanAddObjSection(objsec:TObjSection;ExeSectionLimit:QWord):boolean;
         property EarlySize: QWord read FEarlySize write FEarlySize;
         property StackSize: QWord read FStackSize write FStackSize;
-        property LocalHeapSize: QWord read FLocalHeapSize write FLocalHeapSize;
         property ExeMetaSec: TNewExeMetaSection read FExeMetaSec write FExeMetaSec;
         property MemBasePos: Word read FMemBasePos write FMemBasePos;
         property DataPosSectors: Word read FDataPosSectors write FDataPosSectors;
-        property MinAllocSize: QWord read FMinAllocSize write FMinAllocSize;
-        property NewExeSegmentFlags: TNewExeSegmentFlags read FNewExeSegmentFlags write FNewExeSegmentFlags;
+        property MinAllocSize: QWord read GetMinAllocSize;
+        property SizeInFile: QWord read FSizeInFile write FSizeInFile;
+        property NewExeSegmentFlags: TNewExeSegmentFlags read GetNewExeSegmentFlags write FNewExeSegmentFlags;
+        property Relocations: TNewExeRelocationList read FRelocations;
       end;
 
       { TNewExeOutput }
@@ -4155,8 +4237,151 @@ cleanup:
       end;
 
 {****************************************************************************
+                             TNewExeRelocation
+****************************************************************************}
+
+    procedure TNewExeRelocation.EncodeTo(dest: PByte);
+      begin
+        dest[0]:=Ord(AddressType);
+        dest[1]:=Ord(RelocationType) or (Ord(IsAdditive) shl 2);
+        dest[2]:=Byte(Offset);
+        dest[3]:=Byte(Offset shr 8);
+        case RelocationType of
+          nertInternalRef:
+            begin
+              case InternalRefSegmentType of
+                neirstFixed:
+                  begin
+                    dest[4]:=Byte(InternalRefFixedSegmentNumber);
+                    dest[5]:=0;
+                    dest[6]:=Byte(InternalRefFixedSegmentOffset);
+                    dest[7]:=Byte(InternalRefFixedSegmentOffset shr 8);
+                  end;
+                neirstMovable:
+                  begin
+                    dest[4]:=$FF;
+                    dest[5]:=0;
+                    dest[6]:=Byte(InternalRefMovableSegmentEntryTableIndex);
+                    dest[7]:=Byte(InternalRefMovableSegmentEntryTableIndex shr 8);
+                  end;
+              end;
+            end;
+          nertImportName:
+            begin
+              dest[4]:=Byte(ImportModuleIndex);
+              dest[5]:=Byte(ImportModuleIndex shr 8);
+              dest[6]:=Byte(ImportNameIndex);
+              dest[7]:=Byte(ImportNameIndex shr 8);
+            end;
+          nertImportOrdinal:
+            begin
+              dest[4]:=Byte(ImportModuleIndex);
+              dest[5]:=Byte(ImportModuleIndex shr 8);
+              dest[6]:=Byte(ImportOrdinal);
+              dest[7]:=Byte(ImportOrdinal shr 8);
+            end;
+          nertOsFixup:
+            begin
+              dest[4]:=Byte(Ord(OsFixupType));
+              dest[5]:=Byte(Ord(OsFixupType) shr 8);
+              dest[6]:=0;
+              dest[7]:=0;
+            end;
+        end;
+      end;
+
+{****************************************************************************
+                           TNewExeRelocationList
+****************************************************************************}
+
+    function TNewExeRelocationList.GetCount: Integer;
+      begin
+        Result:=FInternalList.Count;
+      end;
+
+    function TNewExeRelocationList.GetItem(Index: Integer): TNewExeRelocation;
+      begin
+        Result:=TNewExeRelocation(FInternalList[Index]);
+      end;
+
+    function TNewExeRelocationList.GetSize: QWord;
+      begin
+        Result:=2+Count*NewExeRelocationRecordSize;
+      end;
+
+    procedure TNewExeRelocationList.SetCount(AValue: Integer);
+      begin
+        FInternalList.Count:=AValue;
+      end;
+
+    procedure TNewExeRelocationList.SetItem(Index:Integer;AValue:TNewExeRelocation);
+      begin
+        FInternalList[Index]:=AValue;
+      end;
+
+    constructor TNewExeRelocationList.Create;
+      begin
+        FInternalList:=TFPObjectList.Create;
+      end;
+
+    destructor TNewExeRelocationList.Destroy;
+      begin
+        FInternalList.Free;
+        inherited Destroy;
+      end;
+
+    procedure TNewExeRelocationList.WriteTo(aWriter: TObjectWriter);
+      var
+        buf: array of Byte;
+        p: PByte;
+        i: Integer;
+      begin
+        SetLength(buf,Size);
+        buf[0]:=Byte(Count);
+        buf[1]:=Byte(Count shr 8);
+        p:=@(buf[2]);
+        for i:=0 to Count-1 do
+          begin
+            Items[i].EncodeTo(p);
+            Inc(p,NewExeRelocationRecordSize);
+          end;
+        aWriter.write(buf[0],Size);
+      end;
+
+    function TNewExeRelocationList.Add(AObject: TNewExeRelocation): Integer;
+      begin
+        Result:=FInternalList.Add(AObject);
+      end;
+
+{****************************************************************************
                               TNewExeSection
 ****************************************************************************}
+
+    function TNewExeSection.GetMinAllocSize: QWord;
+      begin
+        Result:=Size-StackSize;
+      end;
+
+    function TNewExeSection.GetNewExeSegmentFlags: TNewExeSegmentFlags;
+      begin
+        Result:=FNewExeSegmentFlags;
+        if Relocations.Count>0 then
+          Include(Result,nesfHasRelocationData)
+        else
+          Exclude(Result,nesfHasRelocationData);
+      end;
+
+    constructor TNewExeSection.create(AList:TFPHashObjectList;const AName:string);
+      begin
+        inherited create(AList, AName);
+        FRelocations:=TNewExeRelocationList.Create;
+      end;
+
+    destructor TNewExeSection.destroy;
+      begin
+        FRelocations.Free;
+        inherited destroy;
+      end;
 
     procedure TNewExeSection.WriteHeaderTo(aWriter: TObjectWriter);
       var
@@ -4164,8 +4389,8 @@ cleanup:
       begin
         SegmentHeaderBytes[0]:=Byte(DataPosSectors);
         SegmentHeaderBytes[1]:=Byte(DataPosSectors shr 8);
-        SegmentHeaderBytes[2]:=Byte(Size);
-        SegmentHeaderBytes[3]:=Byte(Size shr 8);
+        SegmentHeaderBytes[2]:=Byte(SizeInFile);
+        SegmentHeaderBytes[3]:=Byte(SizeInFile shr 8);
         SegmentHeaderBytes[4]:=Byte(Word(NewExeSegmentFlags));
         SegmentHeaderBytes[5]:=Byte(Word(NewExeSegmentFlags) shr 8);
         SegmentHeaderBytes[6]:=Byte(MinAllocSize);
@@ -4184,11 +4409,12 @@ cleanup:
         s: TSymStr;
         Separator: SizeInt;
         SegName, SegClass: string;
-        IsStack, IsHeap: Boolean;
+        IsStack, IsBss: Boolean;
       begin
         { allow mixing initialized and uninitialized data in the same section
           => set ignoreprops=true }
         inherited AddObjSection(objsec,true);
+        IsBss:=not(oso_Data in objsec.SecOptions);
         s:=objsec.Name;
         { name format is 'SegName||ClassName' }
         Separator:=Pos('||',s);
@@ -4212,10 +4438,9 @@ cleanup:
           IsStack:=True;
         if IsStack then
           StackSize:=StackSize+objsec.Size;
-        IsHeap:=SegClass='HEAP';
-        if IsHeap then
-          LocalHeapSize:=LocalHeapSize+objsec.Size;
         EarlySize:=align_qword(EarlySize,SecAlign)+objsec.Size;
+        if (not IsBss) and (not IsStack) then
+          SizeInFile:=EarlySize;
       end;
 
     function TNewExeSection.CanAddObjSection(objsec: TObjSection; ExeSectionLimit: QWord): boolean;
@@ -4323,8 +4548,7 @@ cleanup:
         Header.InitialSP:=0;
         Header.InitialSS:=Header.AutoDataSegmentNumber;
         Header.InitialStackSize:=TNewExeSection(ExeSectionList[Header.AutoDataSegmentNumber-1]).StackSize;
-        Header.InitialLocalHeapSize:=TNewExeSection(ExeSectionList[Header.AutoDataSegmentNumber-1]).LocalHeapSize;
-        {todo: subtract the stack size and the local heap size from the size of the auto data segment }
+        Header.InitialLocalHeapSize:=heapsize;
 
         Header.SegmentTableStart:=NewExeHeaderSize;
         Header.SegmentTableEntriesCount:=ExeSectionList.Count;

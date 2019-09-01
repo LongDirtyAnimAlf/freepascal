@@ -604,10 +604,8 @@ type
     function GetDeclaration(full : Boolean): string; override;
     procedure ForEachCall(const aMethodCall: TOnForEachPasElement;
       const Arg: Pointer); override;
-    procedure AddParam(El: TPasElement);
   public
-    NameExpr: TPasExpr; // TPrimitiveExpr
-    Params: TFPList; // list of TPasType or TPasExpr
+    DestType: TPasSpecializeType;
   end;
 
   { TPasClassOfType }
@@ -1051,11 +1049,11 @@ type
 
   { TProcedureNamePart }
 
-  TProcedureNamePart = record
+  TProcedureNamePart = class
     Name: string;
-    Templates: TFPList; // optional list of TPasGenericTemplateType, can nil!
+    Templates: TFPList; // optional list of TPasGenericTemplateType, can be nil!
   end;
-  TProcedureNameParts = array of TProcedureNamePart;
+  TProcedureNameParts = TFPList;
                         
   TProcedureBody = class;
 
@@ -1099,7 +1097,7 @@ type
     Function IsStatic : Boolean;
     Function IsForward: Boolean;
     Function GetProcTypeEnum: TProcType; virtual;
-    procedure SetNameParts(var Parts: TProcedureNameParts);
+    procedure SetNameParts(Parts: TProcedureNameParts);
     Property Modifiers : TProcedureModifiers Read FModifiers Write FModifiers;
     Property CallingConvention : TCallingConvention Read GetCallingConvention Write SetCallingConvention;
     Property MessageName : String Read FMessageName Write FMessageName;
@@ -1811,21 +1809,27 @@ procedure ReleaseProcNameParts(var NameParts: TProcedureNameParts);
 var
   El: TPasElement;
   i, j: Integer;
+  Part: TProcedureNamePart;
 begin
-  for i := 0 to length(NameParts)-1 do
+  if NameParts=nil then exit;
+  for i := NameParts.Count-1 downto 0 do
     begin
-    with NameParts[i] do
-      if Templates<>nil then
+    Part:=TProcedureNamePart(NameParts[i]);
+    if Part.Templates<>nil then
+      begin
+      for j:=0 to Part.Templates.Count-1 do
         begin
-        for j:=0 to Templates.Count-1 do
-          begin
-          El:=TPasGenericTemplateType(Templates[j]);
-          El.Parent:=nil;
-          El.Release{$IFDEF CheckPasTreeRefCount}('TPasProcedure.NameParts'){$ENDIF};
-          end;
-        Templates.Free;
+        El:=TPasGenericTemplateType(Part.Templates[j]);
+        El.Parent:=nil;
+        El.Release{$IFDEF CheckPasTreeRefCount}('TPasProcedure.NameParts'){$ENDIF};
         end;
+      Part.Templates.Free;
+      Part.Templates:=nil;
+      end;
+    NameParts.Delete(i);
+    Part.Free;
     end;
+  NameParts.Free;
   NameParts:=nil;
 end;
 
@@ -2034,17 +2038,11 @@ constructor TInlineSpecializeExpr.Create(const AName: string;
 begin
   if AName='' then ;
   inherited Create(AParent, pekSpecialize, eopNone);
-  Params:=TFPList.Create;
 end;
 
 destructor TInlineSpecializeExpr.Destroy;
-var
-  i: Integer;
 begin
-  ReleaseAndNil(TPasElement(NameExpr){$IFDEF CheckPasTreeRefCount},'CreateElement'{$ENDIF});
-  for i:=0 to Params.Count-1 do
-    TPasElement(Params[i]).Release{$IFDEF CheckPasTreeRefCount}('TInlineSpecializeExpr.Params'){$ENDIF};
-  FreeAndNil(Params);
+  ReleaseAndNil(TPasElement(DestType){$IFDEF CheckPasTreeRefCount},'CreateElement'{$ENDIF});
   inherited Destroy;
 end;
 
@@ -2054,34 +2052,15 @@ begin
 end;
 
 function TInlineSpecializeExpr.GetDeclaration(full: Boolean): string;
-var
-  i: Integer;
 begin
-  Result:='specialize ';
-  Result:=Result+NameExpr.GetDeclaration(full);
-  Result:=Result+'<';
-  for i:=0 to Params.Count-1 do
-    begin
-    if i>0 then
-      Result:=Result+',';
-    Result:=Result+TPasElement(Params[i]).GetDeclaration(false);
-    end;
+  Result:=DestType.GetDeclaration(full);
 end;
 
 procedure TInlineSpecializeExpr.ForEachCall(
   const aMethodCall: TOnForEachPasElement; const Arg: Pointer);
-var
-  i: Integer;
 begin
   inherited ForEachCall(aMethodCall, Arg);
-  ForEachChildCall(aMethodCall,Arg,NameExpr,false);
-  for i:=0 to Params.Count-1 do
-    ForEachChildCall(aMethodCall,Arg,TPasElement(Params[i]),true);
-end;
-
-procedure TInlineSpecializeExpr.AddParam(El: TPasElement);
-begin
-  Params.Add(El);
+  ForEachChildCall(aMethodCall,Arg,DestType,false);
 end;
 
 { TPasSpecializeType }
@@ -2119,7 +2098,7 @@ begin
       Result:=Result+',';
     Result:=Result+TPasElement(Params[i]).GetDeclaration(false);
     end;
-  If Full then
+  If Full and (Name<>'') then
     begin
     Result:=Name+' = '+Result;
     ProcessHints(False,Result);
@@ -4691,11 +4670,12 @@ var
   i, j: Integer;
 begin
   inherited ForEachCall(aMethodCall, Arg);
-  for i:=0 to length(NameParts)-1 do
-    with NameParts[i] do
-      if Templates<>nil then
-        for j:=0 to Templates.Count-1 do
-          ForEachChildCall(aMethodCall,Arg,TPasElement(Templates[i]),false);
+  if NameParts<>nil then
+    for i:=0 to NameParts.Count-1 do
+      with TProcedureNamePart(NameParts[i]) do
+        if Templates<>nil then
+          for j:=0 to Templates.Count-1 do
+            ForEachChildCall(aMethodCall,Arg,TPasElement(Templates[i]),false);
   ForEachChildCall(aMethodCall,Arg,ProcType,false);
   ForEachChildCall(aMethodCall,Arg,PublicName,false);
   ForEachChildCall(aMethodCall,Arg,LibraryExpr,false);
@@ -4770,17 +4750,18 @@ begin
   Result:=ptProcedure;
 end;
 
-procedure TPasProcedure.SetNameParts(var Parts: TProcedureNameParts);
+procedure TPasProcedure.SetNameParts(Parts: TProcedureNameParts);
 var
   i, j: Integer;
   El: TPasElement;
 begin
-  if length(NameParts)>0 then
+  if NameParts<>nil then
     ReleaseProcNameParts(NameParts);
-  NameParts:=Parts;
-  Parts:=nil;
-  for i:=0 to length(NameParts)-1 do
-    with NameParts[i] do
+  NameParts:=TFPList.Create;
+  NameParts.Assign(Parts);
+  Parts.Clear;
+  for i:=0 to NameParts.Count-1 do
+    with TProcedureNamePart(NameParts[i]) do
       if Templates<>nil then
         for j:=0 to Templates.Count-1 do
           begin
@@ -4800,14 +4781,14 @@ begin
     If Full then
       begin
       T:=TypeName;
-      if length(NameParts)>0 then
+      if NameParts<>nil then
         begin
         T:=T+' ';
-        for i:=0 to length(NameParts)-1 do
+        for i:=0 to NameParts.Count-1 do
           begin
           if i>0 then
             T:=T+'.';
-          with NameParts[i] do
+          with TProcedureNamePart(NameParts[i]) do
             begin
             T:=T+Name;
             if Templates<>nil then

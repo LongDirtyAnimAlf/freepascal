@@ -2951,7 +2951,8 @@ const
      (mask:po_is_auto_getter;  str: 'Automatically generated getter'),
      (mask:po_is_auto_setter;  str: 'Automatically generated setter'),
      (mask:po_noinline;        str: 'Never inline'),
-     (mask:po_variadic;        str: 'C VarArgs with array-of-const para')
+     (mask:po_variadic;        str: 'C VarArgs with array-of-const para'),
+     (mask:po_objc_related_result_type; str: 'Objective-C related result type')
   );
 var
   proctypeoption  : tproctypeoption;
@@ -3464,6 +3465,7 @@ var
   realvalue : ppureal;
   doublevalue : double;
   singlevalue : single;
+  realstr : shortstring;
   extended : TSplit80bitReal;
   pw : pcompilerwidestring;
   varoptions : tvaroptions;
@@ -3578,19 +3580,22 @@ begin
                      begin
                        realvalue:=getrealsize(sizeof(ppureal));
                        constdef.VFloat:=realvalue;
-                       writeln([realvalue]);
+                       system.str(realvalue,realstr);
+                       writeln([realstr]);
                      end
                    else if entryleft=sizeof(double) then
                      begin
                        doublevalue:=getrealsize(sizeof(double));
                        constdef.VFloat:=doublevalue;
-                       writeln([doublevalue]);
+                       system.str(doublevalue,realstr);
+                       writeln([realstr]);
                      end
                    else if entryleft=sizeof(single) then
                      begin
                        singlevalue:=getrealsize(sizeof(single));
                        constdef.VFloat:=singlevalue;
-                       writeln([singlevalue]);
+                       system.str(singlevalue,realstr);
+                       writeln([realstr]);
                      end
                    else if entryleft=10 then
                      begin

@@ -14,16 +14,27 @@ type
 
   TTestGenerics = class(TCustomTestModule)
   Published
-    Procedure TestGeneric_RecordEmpty;
-    Procedure TestGeneric_ClassEmpty;
-    Procedure TestGeneric_Class_EmptyMethod;
+    // generic record
+    Procedure TestGen_RecordEmpty;
+
+    // generic class
+    Procedure TestGen_ClassEmpty;
+    Procedure TestGen_Class_EmptyMethod;
+    Procedure TestGen_Class_TList;
+    Procedure TestGen_ClassAncestor;
+
+    // generic external class
+    procedure TestGen_ExtClass_Array;
+
+    // statements
+    Procedure TestGen_InlineSpec_Constructor;
   end;
 
 implementation
 
 { TTestGenerics }
 
-procedure TTestGenerics.TestGeneric_RecordEmpty;
+procedure TTestGenerics.TestGen_RecordEmpty;
 begin
   StartProgram(false);
   Add([
@@ -34,7 +45,7 @@ begin
   'begin',
   '  if a=b then ;']);
   ConvertProgram;
-  CheckSource('TestGeneric_RecordEmpty',
+  CheckSource('TestGen_RecordEmpty',
     LinesToStr([ // statements
     'rtl.recNewT($mod, "TRecA$G1", function () {',
     '  this.$eq = function (b) {',
@@ -52,7 +63,7 @@ begin
     ]));
 end;
 
-procedure TTestGenerics.TestGeneric_ClassEmpty;
+procedure TTestGenerics.TestGen_ClassEmpty;
 begin
   StartProgram(false);
   Add([
@@ -64,7 +75,7 @@ begin
   'begin',
   '  if a=b then ;']);
   ConvertProgram;
-  CheckSource('TestGeneric_ClassEmpty',
+  CheckSource('TestGen_ClassEmpty',
     LinesToStr([ // statements
     'rtl.createClass($mod, "TObject", null, function () {',
     '  this.$init = function () {',
@@ -82,7 +93,7 @@ begin
     ]));
 end;
 
-procedure TTestGenerics.TestGeneric_Class_EmptyMethod;
+procedure TTestGenerics.TestGen_Class_EmptyMethod;
 begin
   StartProgram(false);
   Add([
@@ -98,7 +109,7 @@ begin
   'begin',
   '  if a.Fly(3)=4 then ;']);
   ConvertProgram;
-  CheckSource('TestGeneric_Class_EmptyMethod',
+  CheckSource('TestGen_Class_EmptyMethod',
     LinesToStr([ // statements
     'rtl.createClass($mod, "TObject", null, function () {',
     '  this.$init = function () {',
@@ -117,6 +128,213 @@ begin
     LinesToStr([ // $mod.$main
     '  if ($mod.a.Fly(3) === 4) ;'
     ]));
+end;
+
+procedure TTestGenerics.TestGen_Class_TList;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  generic TList<T> = class',
+  '  strict private',
+  '    FItems: array of T;',
+  '    function GetItems(Index: longint): T;',
+  '    procedure SetItems(Index: longint; Value: T);',
+  '  public',
+  '    procedure Alter(w: T);',
+  '    property Items[Index: longint]: T read GetItems write SetItems; default;',
+  '  end;',
+  '  TWordList = specialize TList<word>;',
+  'function TList.GetItems(Index: longint): T;',
+  'begin',
+  '  Result:=FItems[Index];',
+  'end;',
+  'procedure TList.SetItems(Index: longint; Value: T);',
+  'begin',
+  '  FItems[Index]:=Value;',
+  'end;',
+  'procedure TList.Alter(w: T);',
+  'begin',
+  '  SetLength(FItems,length(FItems)+1);',
+  '  Insert(w,FItems,2);',
+  '  Delete(FItems,2,3);',
+  'end;',
+  'var l: TWordList;',
+  '  w: word;',
+  'begin',
+  '  l[1]:=w;',
+  '  w:=l[2];',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGen_Class_TList',
+    LinesToStr([ // statements
+    'rtl.createClass($mod, "TObject", null, function () {',
+    '  this.$init = function () {',
+    '  };',
+    '  this.$final = function () {',
+    '  };',
+    '});',
+    'rtl.createClass($mod, "TList$G1", $mod.TObject, function () {',
+    '  this.$init = function () {',
+    '    $mod.TObject.$init.call(this);',
+    '    this.FItems = [];',
+    '  };',
+    '  this.$final = function () {',
+    '    this.FItems = undefined;',
+    '    $mod.TObject.$final.call(this);',
+    '  };',
+    '  this.GetItems = function (Index) {',
+    '    var Result = 0;',
+    '    Result = this.FItems[Index];',
+    '    return Result;',
+    '  };',
+    '  this.SetItems = function (Index, Value) {',
+    '    this.FItems[Index] = Value;',
+    '  };',
+    '  this.Alter = function (w) {',
+    '    this.FItems = rtl.arraySetLength(this.FItems, 0, rtl.length(this.FItems) + 1);',
+    '    this.FItems.splice(2, 0, w);',
+    '    this.FItems.splice(2, 3);',
+    '  };',
+    '});',
+    'this.l = null;',
+    'this.w = 0;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.l.SetItems(1, $mod.w);',
+    '$mod.w = $mod.l.GetItems(2);',
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_ClassAncestor;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  TObject = class end;',
+  '  generic TBird<T> = class',
+  '  end;',
+  '  generic TEagle<T> = class(TBird<T>)',
+  '  end;',
+  'var a: specialize TEagle<word>;',
+  'begin',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGen_ClassAncestor',
+    LinesToStr([ // statements
+    'rtl.createClass($mod, "TObject", null, function () {',
+    '  this.$init = function () {',
+    '  };',
+    '  this.$final = function () {',
+    '  };',
+    '});',
+    'rtl.createClass($mod, "TBird$G2", $mod.TObject, function () {',
+    '});',
+    'rtl.createClass($mod, "TEagle$G1", $mod.TBird$G2, function () {',
+    '});',
+    'this.a = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_ExtClass_Array;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  '{$ModeSwitch externalclass}',
+  'type',
+  '  NativeInt = longint;',
+  '  TJSGenArray<T> = Class external name ''Array''',
+  '  private',
+  '    function GetElements(Index: NativeInt): T; external name ''[]'';',
+  '    procedure SetElements(Index: NativeInt; const AValue: T); external name ''[]'';',
+  '  public',
+  '    type TSelfType = TJSGenArray<T>;',
+  '  public',
+  '    FLength : NativeInt; external name ''length'';',
+  '    constructor new; overload;',
+  '    constructor new(aLength : NativeInt); overload;',
+  '    class function _of() : TSelfType; varargs; external name ''of'';',
+  '    function fill(aValue : T) : TSelfType; overload;',
+  '    function fill(aValue : T; aStartIndex : NativeInt) : TSelfType; overload;',
+  '    function fill(aValue : T; aStartIndex,aEndIndex : NativeInt) : TSelfType; overload;',
+  '    property Length : NativeInt Read FLength Write FLength;',
+  '    property Elements[Index: NativeInt]: T read GetElements write SetElements; default;',
+  '  end;',
+  '  TJSWordArray = TJSGenArray<word>;',
+  'var',
+  '  wa: TJSWordArray;',
+  '  w: word;',
+  'begin',
+  '  wa:=TJSWordArray.new;',
+  '  wa:=TJSWordArray.new(3);',
+  '  wa:=TJSWordArray._of(4,5);',
+  '  wa:=wa.fill(7);',
+  '  wa:=wa.fill(7,8,9);',
+  '  w:=wa.length;',
+  '  wa.length:=10;',
+  '  wa[11]:=w;',
+  '  w:=wa[12];',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGen_ExtClass_Array',
+    LinesToStr([ // statements
+    'this.wa = null;',
+    'this.w = 0;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.wa = new Array();',
+    '$mod.wa = new Array(3);',
+    '$mod.wa = Array.of(4, 5);',
+    '$mod.wa = $mod.wa.fill(7);',
+    '$mod.wa = $mod.wa.fill(7, 8, 9);',
+    '$mod.w = $mod.wa.length;',
+    '$mod.wa.length = 10;',
+    '$mod.wa[11] = $mod.w;',
+    '$mod.w = $mod.wa[12];',
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_InlineSpec_Constructor;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class',
+  '  public',
+  '    constructor Create;',
+  '  end;',
+  '  generic TBird<T> = class',
+  '  end;',
+  'constructor TObject.Create; begin end;',
+  'var b: TBird<word>;',
+  'begin',
+  '  b:=specialize TBird<word>.Create;',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGen_InlineSpec_Constructor',
+    LinesToStr([ // statements
+    'rtl.createClass($mod, "TObject", null, function () {',
+    '  this.$init = function () {',
+    '  };',
+    '  this.$final = function () {',
+    '  };',
+    '  this.Create = function () {',
+    '    return this;',
+    '  };',
+    '});',
+    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
+    '});',
+    'this.b = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.b = $mod.TBird$G1.$create("Create");',
+    '']));
 end;
 
 Initialization

@@ -97,7 +97,7 @@ begin
     '  b : T;',
     'end;',
     'Generic TBird<T: class> = class',
-    '  c : TBird<T>;',
+    '  c : specialize TBird<T>;',
     'end;',
     'Generic TEagle<T: record> = class',
     'end;',
@@ -116,11 +116,11 @@ begin
     'TBird = class(TInterfacedObject,TIntfA,TIntfB) end;',
     'Generic TAnt<T: TIntfA, TIntfB> = class',
     '  b: T;',
-    '  c: TAnt<T>;',
+    '  c: specialize TAnt<T>;',
     'end;',
     'Generic TFly<T: TIntfA, TIntfB; S> = class',
     '  b: S;',
-    '  c: TFly<T>;',
+    '  c: specialize TFly<T>;',
     'end;',
     '']);
   ParseDeclarations;
@@ -148,6 +148,7 @@ end;
 
 procedure TTestGenerics.TestSpecializationDelphi;
 begin
+  Add('{$mode delphi}');
   ParseType('TFPGList<integer>',TPasSpecializeType,'');
 end;
 
@@ -273,9 +274,13 @@ end;
 procedure TTestGenerics.TestInlineSpecializeInStatement;
 begin
   Add([
+  '{$mode objfpc}',
   'begin',
+  '  vec:=specialize TVector<double>.create;',
   '  t:=specialize a<b>;',
-  '  t:=a.specialize b<c>;',
+  //'  t:=specialize a<b.specialize c<d,e.f>>;',
+  //'  t:=a.specialize b<c>;',
+  '  t:=specialize a<b>.c;',
   '']);
   ParseModule;
 end;
@@ -283,6 +288,7 @@ end;
 procedure TTestGenerics.TestInlineSpecializeInStatementDelphi;
 begin
   Add([
+  '{$mode delphi}',
   'begin',
   '  vec:=TVector<double>.create;',
   '  b:=a<b;',

@@ -39,6 +39,7 @@ unit aoptcpu;
         function PeepHoleOptPass1Cpu(var p: tai): boolean; override;
 
         function TryToOptimizeMove(var p: tai): boolean;
+        function MaybeRealConstOperSimplify(var p: tai): boolean;
 
         { outputs a debug message into the assembler file }
         procedure DebugMsg(const s: string; p: tai);
@@ -85,6 +86,56 @@ unit aoptcpu;
             else
               internalerror(2016112401);
           end
+      end;
+
+    function TCpuAsmOptimizer.MaybeRealConstOperSimplify(var p: tai): boolean;
+      var
+        tmpint64: int64;
+        tmpsingle: single;
+      begin
+        result:=false;
+        if (taicpu(p).oper[0]^.typ = top_realconst) then
+          begin
+            { if we work with actual integers, turn the operand into one }
+            if frac(taicpu(p).oper[0]^.val_real) = 0 then
+              begin
+                tmpint64:=trunc(taicpu(p).oper[0]^.val_real);
+                if (high(shortint) >= tmpint64) and (low(shortint) <= tmpint64) then
+                  begin
+                    taicpu(p).opsize := S_B;
+                    taicpu(p).oper[0]^.typ:=top_const;
+                  end
+                else
+                  if (high(smallint) >= tmpint64) and (low(smallint) <= tmpint64) then
+                    begin
+                      taicpu(p).opsize := S_W;
+                      taicpu(p).oper[0]^.typ:=top_const;
+                    end
+                  else
+                    if (high(longint) >= tmpint64) and (low(longint) <= tmpint64) then
+                      begin
+                        taicpu(p).opsize := S_L;
+                        taicpu(p).oper[0]^.typ:=top_const;
+                      end;
+                if (taicpu(p).oper[0]^.typ) = top_const then
+                  begin
+                    DebugMsg('Optimizer: FPU real const to integer',p);
+                    taicpu(p).oper[0]^.val:=tmpint64;
+                    result:=true;
+                  end;
+              end
+            else
+              begin
+                tmpsingle:=taicpu(p).oper[0]^.val_real;
+                if (taicpu(p).opsize = S_FD) and
+                   ((taicpu(p).oper[0]^.val_real - tmpsingle) = 0.0) then
+                  begin
+                    DebugMsg('Optimizer: FPU real const to lesser precision',p);
+                    taicpu(p).opsize:=S_FS;
+                    result:=true;
+                  end;
+              end;
+          end;
       end;
 
     function TCpuAsmOptimizer.RegLoadedWithNewValue(reg: tregister; hp: tai): boolean;
@@ -252,7 +303,6 @@ unit aoptcpu;
     var
       next: tai;
       tmpref: treference;
-      tmpsingle: single;
     begin
       result:=false;
       case p.typ of
@@ -359,35 +409,19 @@ unit aoptcpu;
                         result:=true;
                       end
                     else
-                      begin
-                        tmpsingle:=taicpu(p).oper[0]^.val_real;
-                        if (taicpu(p).opsize = S_FD) and
-                           ((taicpu(p).oper[0]^.val_real - tmpsingle) = 0.0) then
-                          begin
-                            DebugMsg('Optimizer: FCMP const to lesser precision',p);
-                            taicpu(p).opsize:=S_FS;
-                            result:=true;
-                          end;
-                      end;
+                      result:=result or MaybeRealConstOperSimplify(p);
                   end;
-              A_FMOVE,A_FMUL,A_FADD,A_FSUB,A_FDIV:
+              A_FMOVE,A_FSMOVE,A_FDMOVE,
+              A_FADD,A_FSADD,A_FDADD,A_FSUB,A_FSSUB,A_FDSUB,
+              A_FMUL,A_FSMUL,A_FDMUL,A_FDIV,A_FSDIV,A_FDDIV,
+              A_FSGLMUL,A_FSGLDIV:
                   begin
                     if (taicpu(p).opcode = A_FMOVE) and TryToOptimizeMove(p) then
                       begin
                         result:=true;
                         exit;
                       end;
-                    if (taicpu(p).oper[0]^.typ = top_realconst) then
-                      begin
-                        tmpsingle:=taicpu(p).oper[0]^.val_real;
-                        if (taicpu(p).opsize = S_FD) and
-                           ((taicpu(p).oper[0]^.val_real - tmpsingle) = 0.0) then
-                          begin
-                            DebugMsg('Optimizer: FMOVE/FMUL/FADD/FSUB/FDIV const to lesser precision',p);
-                            taicpu(p).opsize:=S_FS;
-                            result:=true;
-                          end;
-                      end;
+                    result:=result or MaybeRealConstOperSimplify(p);
                   end;
             end;
           end;

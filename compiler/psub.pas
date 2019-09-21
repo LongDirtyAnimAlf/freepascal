@@ -757,7 +757,7 @@ implementation
             constructionsuccessful:=nil;
             if is_class(procdef.struct) then
               begin
-                constructionsuccessful:=clocalvarsym.create(internaltypeprefixName[itp_vmt_afterconstruction_local],vs_value,ptrsinttype,[],false);
+                constructionsuccessful:=clocalvarsym.create(internaltypeprefixName[itp_vmt_afterconstruction_local],vs_value,ptrsinttype,[]);
                 procdef.localst.insert(constructionsuccessful,false);
                 srsym:=search_struct_member(procdef.struct,'AFTERCONSTRUCTION');
                 if not assigned(srsym) or
@@ -2557,6 +2557,7 @@ implementation
                      if is_c_variadic(pd) then
                        Message1(parser_e_callthrough_varargs,pd.fullprocname(false));
                      call_through_new_name(pd,proc_get_importname(pd));
+                     include(pd.implprocoptions,pio_thunk);
                    end
                  else
 {$endif cpuhighleveltarget}

@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, fpcunit, testregistry,
-  TCModules;
+  TCModules, FPPas2Js;
 
 type
 
@@ -22,12 +22,15 @@ type
     Procedure TestGen_Class_EmptyMethod;
     Procedure TestGen_Class_TList;
     Procedure TestGen_ClassAncestor;
+    Procedure TestGen_TypeInfo;
 
     // generic external class
     procedure TestGen_ExtClass_Array;
 
     // statements
     Procedure TestGen_InlineSpec_Constructor;
+    Procedure TestGen_CallUnitImplProc;
+    Procedure TestGen_IntAssignTemplVar;
   end;
 
 implementation
@@ -216,7 +219,7 @@ begin
   '  TObject = class end;',
   '  generic TBird<T> = class',
   '  end;',
-  '  generic TEagle<T> = class(TBird<T>)',
+  '  generic TEagle<T> = class(specialize TBird<T>)',
   '  end;',
   'var a: specialize TEagle<word>;',
   'begin',
@@ -237,6 +240,51 @@ begin
     'this.a = null;',
     '']),
     LinesToStr([ // $mod.$main
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_TypeInfo;
+begin
+  Converter.Options:=Converter.Options-[coNoTypeInfo];
+  StartProgram(false);
+  Add([
+  'type',
+  '  TObject = class end;',
+  '  generic TBird<T> = class',
+  '  published',
+  '    m: T;',
+  '  end;',
+  '  TEagle = specialize TBird<word>;',
+  'var',
+  '  b: specialize TBird<word>;',
+  '  p: pointer;',
+  'begin',
+  '  p:=typeinfo(TEagle);',
+  '  p:=typeinfo(b);',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGen_TypeInfo',
+    LinesToStr([ // statements
+    'rtl.createClass($mod, "TObject", null, function () {',
+    '  this.$init = function () {',
+    '  };',
+    '  this.$final = function () {',
+    '  };',
+    '});',
+    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
+    '  this.$init = function () {',
+    '    $mod.TObject.$init.call(this);',
+    '    this.m = 0;',
+    '  };',
+    '  var $r = this.$rtti;',
+    '  $r.addField("m", rtl.word);',
+    '});',
+    'this.b = null;',
+    'this.p = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.p = $mod.$rtti["TBird$G1"];',
+    '$mod.p = $mod.b.$rtti;',
     '']));
 end;
 
@@ -312,7 +360,7 @@ begin
   '  generic TBird<T> = class',
   '  end;',
   'constructor TObject.Create; begin end;',
-  'var b: TBird<word>;',
+  'var b: specialize TBird<word>;',
   'begin',
   '  b:=specialize TBird<word>.Create;',
   '']);
@@ -334,6 +382,103 @@ begin
     '']),
     LinesToStr([ // $mod.$main
     '$mod.b = $mod.TBird$G1.$create("Create");',
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_CallUnitImplProc;
+begin
+  AddModuleWithIntfImplSrc('UnitA.pas',
+  LinesToStr([
+    'type',
+    '  generic TBird<T> = class',
+    '    procedure Fly;',
+    '  end;',
+    'var b: specialize TBird<boolean>;',
+    '']),
+  LinesToStr([
+    'procedure DoIt;',
+    'var b: specialize TBird<word>;',
+    'begin',
+    '  b:=specialize TBird<word>.Create;',
+    '  b.Fly;',
+    'end;',
+    'procedure TBird.Fly;',
+    'begin',
+    '  DoIt;',
+    'end;',
+    '']));
+  StartProgram(true,[supTObject]);
+  Add('uses UnitA;');
+  Add('begin');
+  ConvertProgram;
+  CheckUnit('UnitA.pas',
+    LinesToStr([ // statements
+    'rtl.module("UnitA", ["system"], function () {',
+    '  var $mod = this;',
+    '  var $impl = $mod.$impl;',
+    '  rtl.createClass($mod, "TBird$G1", pas.system.TObject, function () {',
+    '    this.Fly = function () {',
+    '      $impl.DoIt();',
+    '    };',
+    '  });',
+    '  rtl.createClass($mod, "TBird$G2", pas.system.TObject, function () {',
+    '    this.Fly = function () {',
+    '      $impl.DoIt();',
+    '    };',
+    '  });',
+    '  this.b = null;',
+    '}, null, function () {',
+    '  var $mod = this;',
+    '  var $impl = $mod.$impl;',
+    '  $impl.DoIt = function () {',
+    '    var b = null;',
+    '    b = $mod.TBird$G2.$create("Create");',
+    '    b.Fly();',
+    '  };',
+    '});',
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_IntAssignTemplVar;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  TObject = class end;',
+  '  generic TBird<T> = class',
+  '    m: T;',
+  '    procedure Fly;',
+  '  end;',
+  'var b: specialize TBird<word>;',
+  'procedure TBird.Fly;',
+  'var i: nativeint;',
+  'begin',
+  '  i:=m;',
+  'end;',
+  'begin',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGen_IntAssignTemplVar',
+    LinesToStr([ // statements
+    'rtl.createClass($mod, "TObject", null, function () {',
+    '  this.$init = function () {',
+    '  };',
+    '  this.$final = function () {',
+    '  };',
+    '});',
+    'rtl.createClass($mod, "TBird$G1", $mod.TObject, function () {',
+    '  this.$init = function () {',
+    '    $mod.TObject.$init.call(this);',
+    '    this.m = 0;',
+    '  };',
+    '  this.Fly = function () {',
+    '    var i = 0;',
+    '    i = this.m;',
+    '  };',
+    '});',
+    'this.b = null;',
+    '']),
+    LinesToStr([ // $mod.$main
     '']));
 end;
 

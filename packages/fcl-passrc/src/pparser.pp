@@ -319,8 +319,8 @@ type
     procedure ParseClassFields(AType: TPasClassType; const AVisibility: TPasMemberVisibility; IsClassField : Boolean);
     procedure ParseClassMembers(AType: TPasClassType);
     procedure ProcessMethod(AType: TPasClassType; IsClass : Boolean; AVisibility : TPasMemberVisibility);
-    procedure ReadGenericArguments(List : TFPList;Parent : TPasElement);
-    procedure ReadSpecializeArguments(Spec: TPasSpecializeType);
+    procedure ReadGenericArguments(List: TFPList; Parent: TPasElement);
+    procedure ReadSpecializeArguments(Parent: TPasElement; Params: TFPList);
     function ReadDottedIdentifier(Parent: TPasElement; out Expr: TPasExpr; NeedAsString: boolean): String;
     function CheckProcedureArgs(Parent: TPasElement;
       Args: TFPList; // list of TPasArgument
@@ -1570,7 +1570,8 @@ begin
         ParseExcSyntaxError;
       UnGetToken;
       end
-    else if (CurToken = tkLessThan) then // A = B<t>;
+    else if (CurToken = tkLessThan)
+        and (MustBeSpecialize or (msDelphi in CurrentModeswitches)) then // A = B<t>;
       begin
       Result:=ParseSpecializeType(Parent,TypeName,Name,Expr);
       ok:=true;
@@ -1683,22 +1684,29 @@ begin
     if CurToken=tkLessThan then
       begin
       // specialize
-      Result:=ParseSpecializeType(Parent,'',Name,Expr);
-      NextToken;
+      if IsSpecialize or (msDelphi in CurrentModeswitches) then
+        begin
+        Result:=ParseSpecializeType(Parent,'',Name,Expr);
+        NextToken;
+        end;
       end
     else if IsSpecialize then
       CheckToken(tkLessThan)
     else
       begin
       // simple type reference
-      if not NeedExpr then
-        ReleaseAndNil(TPasElement(Expr){$IFDEF CheckPasTreeRefCount},'CreateElement'{$ENDIF});
       Result:=ResolveTypeReference(Name,Parent);
       end;
     ok:=true;
   finally
-    if (not ok) and (Result<>nil) then
-      Result.Release{$IFDEF CheckPasTreeRefCount}('CreateElement'){$ENDIF};
+    if not ok then
+      begin
+      if Result<>nil then
+        Result.Release{$IFDEF CheckPasTreeRefCount}('CreateElement'){$ENDIF};
+      ReleaseAndNil(TPasElement(Expr){$IFDEF CheckPasTreeRefCount},'CreateElement'{$ENDIF});
+      end
+    else if (not NeedExpr) and (Expr<>nil) then
+      ReleaseAndNil(TPasElement(Expr){$IFDEF CheckPasTreeRefCount},'CreateElement'{$ENDIF});
   end;
 end;
 
@@ -1720,7 +1728,7 @@ begin
       GenNameExpr:=nil; // ownership transferred to ST
       end;
     // read nested specialize arguments
-    ReadSpecializeArguments(ST);
+    ReadSpecializeArguments(ST,ST.Params);
     // Important: resolve type reference AFTER args, because arg count is needed
     ST.DestType:=ResolveTypeReference(GenName,ST,ST.Params.Count);
 
@@ -2319,8 +2327,6 @@ var
   SrcPos, ScrPos: TPasSourcePos;
   ProcType: TProcType;
   ProcExpr: TProcedureExpr;
-  SpecType: TPasSpecializeType;
-
 begin
   Result:=nil;
   CanSpecialize:=aCannot;
@@ -2331,7 +2337,10 @@ begin
     tkNumber: Last:=CreatePrimitiveExpr(AParent,pekNumber,CurTokenString);
     tkIdentifier:
       begin
-      CanSpecialize:=aCan;
+      if msDelphi in CurrentModeswitches then
+        CanSpecialize:=aCan
+      else
+        CanSpecialize:=aCannot;
       aName:=CurTokenText;
       if (CompareText(aName,'self')=0) and not (tkself in Scanner.NonTokens) then
         Last:=CreateSelfExpr(AParent)
@@ -2489,7 +2498,7 @@ begin
           // an inline specialization (e.g. A<B,C>  or  something.A<B>)
           // check expression in front is an identifier
           Expr:=Result;
-          while Expr.Kind=pekBinary do
+          if Expr.Kind=pekBinary then
             begin
             if Expr.OpCode<>eopSubIdent then
               ParseExcSyntaxError;
@@ -2498,25 +2507,14 @@ begin
           if Expr.Kind<>pekIdent then
             ParseExcSyntaxError;
 
-          // read specialized type
+          // read specialized params
           ISE:=TInlineSpecializeExpr(CreateElement(TInlineSpecializeExpr,'',AParent,SrcPos));
-          SpecType:=TPasSpecializeType(CreateElement(TPasSpecializeType,'',ISE,SrcPos));
-          ISE.DestType:=SpecType;
-          ReadSpecializeArguments(SpecType);
-          // can't resolve SpecType.DestType here
+          ReadSpecializeArguments(ISE,ISE.Params);
 
           // A<B>  or  something.A<B>
-          if Expr.Parent is TBinaryExpr then
-            begin
-            if TBinaryExpr(Expr.Parent).right<>Expr then
-              ParseExcSyntaxError;
-            TBinaryExpr(Expr.Parent).right:=ISE;
-            ISE.Parent:=Expr.Parent;
-            end;
-          SpecType.Expr:=Expr;
-          Expr.Parent:=SpecType;
-          if Expr=Result then
-            Result:=ISE;
+          ISE.NameExpr:=Result;
+          Result.Parent:=ISE;
+          Result:=ISE;
           ISE:=nil;
           CanSpecialize:=aCannot;
           NextToken;
@@ -4110,26 +4108,28 @@ begin
     if Curtoken = tkColon then
       repeat
         NextToken;
-        // comma separated list: identifier, class, record, constructor
-        if CurToken in [tkclass,tkrecord,tkconstructor] then
+        // comma separated list of constraints: identifier, class, record, constructor
+        case CurToken of
+        tkclass,tkrecord,tkconstructor:
           begin
           if T.TypeConstraint='' then
             T.TypeConstraint:=CurTokenString;
           Expr:=CreatePrimitiveExpr(T,pekIdent,CurTokenText);
+          T.AddConstraint(Expr);
           NextToken;
-          end
-        else if CurToken=tkIdentifier then
+          end;
+        tkIdentifier,tkspecialize:
           begin
-          TypeEl:=ParseTypeReference(Parent,true,Expr);
-          if TypeEl<>nil then
-            begin
+          TypeEl:=ParseTypeReference(T,false,Expr);
+          if T.TypeConstraint='' then
             T.TypeConstraint:=TypeEl.Name;
-            TypeEl.Release{$IFDEF CheckPasTreeRefCount}('CreateElement'){$ENDIF};
-            end;
-          end
+          if (Expr<>nil) and (Expr.Parent=T) then
+            Expr.Release{$IFDEF CheckPasTreeRefCount}('CreateElement'){$ENDIF};
+          T.AddConstraint(TypeEl);
+          end;
         else
           CheckToken(tkIdentifier);
-        T.AddConstraint(Expr);
+        end;
       until CurToken<>tkComma;
     Engine.FinishScope(stTypeDef,T);
   until not (CurToken in [tkSemicolon,tkComma]);
@@ -4139,7 +4139,8 @@ begin
 end;
 {$warn 5043 on}
 
-procedure TPasParser.ReadSpecializeArguments(Spec: TPasSpecializeType);
+procedure TPasParser.ReadSpecializeArguments(Parent: TPasElement;
+  Params: TFPList);
 // after parsing CurToken is on tkGreaterThan
 Var
   TypeEl: TPasType;
@@ -4148,8 +4149,8 @@ begin
   CheckToken(tkLessThan);
   repeat
     //writeln('ARG TPasParser.ReadSpecializeArguments ',CurTokenText,' ',CurTokenString);
-    TypeEl:=ParseType(Spec,CurTokenPos,'');
-    Spec.AddParam(TypeEl);
+    TypeEl:=ParseType(Parent,CurTokenPos,'');
+    Params.Add(TypeEl);
     NextToken;
     if CurToken=tkComma then
       continue

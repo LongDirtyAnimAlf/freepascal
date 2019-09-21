@@ -461,7 +461,7 @@ Unit racpugas;
 
       const
         shiftmode2str: array[SM_LSL..SM_SXTX] of string[4] =
-          ('LSL','LSR','ASR',
+          ('LSL','LSR','ASR','ROR',
            'UXTB','UXTH','UXTW','UXTX',
            'SXTB','SXTH','SXTW','SXTX');
       var
@@ -565,7 +565,8 @@ Unit racpugas;
                oper.opr.symbol:=hl;
              end
             else if (actopcode=A_ADR) or
-               (actopcode=A_ADRP) then
+               (actopcode=A_ADRP) or
+               (actopcode=A_LDR) then
               begin
                 oper.InitRef;
                 MaybeAddGotAddrMode;

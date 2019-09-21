@@ -4205,7 +4205,10 @@ implementation
         if (highrange>0) and (lowrange<0) then
           begin
             qhigh:=highrange;
-            qlow:=qword(-lowrange);
+            if lowrange=low(asizeint) then
+              qlow:=high(asizeint) + 1
+            else
+              qlow:=qword(-lowrange);
             { prevent overflow, return 0 to indicate overflow }
             if qhigh+qlow>qword(high(asizeint)-1) then
               result:=0
@@ -4816,7 +4819,7 @@ implementation
           type again by name too -> create typesym }
         if n<>'' then
           begin
-            ts:=ctypesym.create(n,self,true);
+            ts:=ctypesym.create(n,self);
             { avoid hints about unused types (these may only be used for
               typed constant data) }
             ts.increfcount;
@@ -4842,7 +4845,7 @@ implementation
           end
         else
           pname:=@optionalname;
-        sym:=cfieldvarsym.create(pname^,vs_value,def,[],true);
+        sym:=cfieldvarsym.create(pname^,vs_value,def,[]);
         symtable.insert(sym);
         trecordsymtable(symtable).addfield(sym,vis_hidden);
         result:=sym;
@@ -7605,7 +7608,7 @@ implementation
                  tObjectSymtable(symtable).datasize:=align(tObjectSymtable(symtable).datasize,sizeof(pint));
                  tObjectSymtable(symtable).alignrecord(tObjectSymtable(symtable).datasize,sizeof(pint));
                end;
-             vmt_field:=cfieldvarsym.create('_vptr$'+objname^,vs_value,voidpointertype,[],true);
+             vmt_field:=cfieldvarsym.create('_vptr$'+objname^,vs_value,voidpointertype,[]);
              hidesym(vmt_field);
              tObjectSymtable(symtable).insert(vmt_field);
              tObjectSymtable(symtable).addfield(tfieldvarsym(vmt_field),vis_hidden);
@@ -7720,7 +7723,9 @@ implementation
         if not(typesym.owner.symtabletype in [ObjectSymtable,recordsymtable]) then
           vmttypesym:=typesym.owner.Find('vmtdef$'+mangledparaname)
         else
-          vmttypesym:=tobjectsymtable(typesym.owner).get_unit_symtable.Find('vmtdef$'+mangledparaname);
+          { Use common parent of trecordsymtable and tobjectsymtable
+            to avoid invalid typecast error when compiled with -CR option }
+          vmttypesym:=tabstractrecordsymtable(typesym.owner).get_unit_symtable.Find('vmtdef$'+mangledparaname);
         if not assigned(vmttypesym) or
            (vmttypesym.typ<>symconst.typesym) or
            (ttypesym(vmttypesym).typedef.typ<>recorddef) then

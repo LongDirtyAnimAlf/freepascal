@@ -1761,6 +1761,8 @@ unit cgcpu;
       var
         l : TAsmLabel;
         tmpflags : TResFlags;
+        i: Integer;
+        hreg: TRegister;
       begin
         current_asmdata.getjumplabel(l);
         {
@@ -1776,6 +1778,13 @@ unit cgcpu;
         }
           begin
             list.concat(taicpu.op_reg_const(A_LDI,reg,1));
+            hreg:=reg;
+            for i:=2 to tcgsize2size[size] do
+              begin
+                hreg:=GetNextReg(hreg);
+                emit_mov(list,hreg,NR_R1);
+              end;
+
             a_jmp_flags(list,f,l);
             emit_mov(list,reg,NR_R1);
           end;
@@ -2395,7 +2404,14 @@ unit cgcpu;
             list.concat(taicpu.op_reg_ref(GetLoad(srcref),NR_R0,srcref));
             list.concat(taicpu.op_ref_reg(GetStore(dstref),dstref,NR_R0));
             cg.ungetcpuregister(list,NR_R0);
-            list.concat(taicpu.op_reg(A_DEC,countreg));
+            if tcgsize2size[countregsize] = 1 then
+              list.concat(taicpu.op_reg(A_DEC,countreg))
+            else
+              begin
+                list.concat(taicpu.op_reg_const(A_SUBI,countreg,1));
+                list.concat(taicpu.op_reg_reg(A_SBC,GetNextReg(countreg),NR_R1));
+              end;
+
             a_jmp_flags(list,F_NE,l);
             cg.ungetcpuregister(list,NR_R26);
             cg.ungetcpuregister(list,NR_R27);

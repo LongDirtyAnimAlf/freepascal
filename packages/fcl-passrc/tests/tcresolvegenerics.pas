@@ -84,6 +84,7 @@ type
     procedure TestGen_Class_Self;
     procedure TestGen_Class_MemberTypeConstructor;
     procedure TestGen_Class_List;
+    // ToDo: different modeswitches at parse time and specialize time
 
     // generic external class
     procedure TestGen_ExtClass_Array;
@@ -104,6 +105,7 @@ type
     procedure TestGen_PointerDirectSpecializeFail;
 
     // ToDo: helpers for generics
+    // ToDo: default class prop array helper: arr<b>[c]
 
     // generic statements
     procedure TestGen_LocalVar;
@@ -114,20 +116,35 @@ type
     procedure TestGen_TryExcept;
     procedure TestGen_Call;
     procedure TestGen_NestedProc;
+    // ToDo: obj<b>[c]
 
     // generic functions
-    procedure TestGenProc_Function; // ToDo
-    //procedure TestGenProc_Forward; // ToDo
-    // ToDo: forward parametrized impl must not repeat constraints
-    // ToDo: forward parametrized impl overloads
-    // ToDo: parametrized nested proc fail
-    // ToDo: generic class method overload <T> <S,T>
-    // ToDo: procedure TestGenMethod_ClassConstructorFail;
-    // ToDo: procedure TestGenMethod_NestedProc;
+    procedure TestGenProc_Function;
+    procedure TestGenProc_FunctionDelphi;
+    procedure TestGenProc_OverloadDuplicate;
+    procedure TestGenProc_MissingTemplatesFail;
+    procedure TestGenProc_Forward;
+    procedure TestGenProc_External;
+    procedure TestGenProc_UnitIntf;
+    procedure TestGenProc_BackRef1Fail;
+    procedure TestGenProc_BackRef2Fail;
+    procedure TestGenProc_BackRef3Fail;
+    //procedure TestGenProc_Inference;
+    procedure TestGenProc_CallSelf;
+    procedure TestGenProc_ForwardConstraints;
+    procedure TestGenProc_ForwardConstraintsRepeatFail;
+    procedure TestGenProc_ForwardTempNameMismatch;
+    procedure TestGenProc_ForwardOverload;
+    procedure TestGenProc_NestedFail;
+    procedure TestGenMethod_VirtualFail;
     // ToDo: virtual method cannot have type parameters
     // ToDo: message method cannot have type parameters
-    // ToDo: interface method cannot have type parameters
+    // ToDo: class interface method cannot have type parameters
     // ToDo: parametrized method mismatch interface method
+    // ToDo: generic class method overload <T> <S,T>
+    // ToDo: generic class method overload <T>(bool) <T>(word)
+    // ToDo: procedure TestGenMethod_ClassConstructorFail;
+    // ToDo: procedure TestGenMethod_NestedProc;
   end;
 
 implementation
@@ -1689,7 +1706,6 @@ end;
 
 procedure TTestResolveGenerics.TestGenProc_Function;
 begin
-  exit;
   StartProgram(false);
   Add([
   'generic function DoIt<T>(a: T): T;',
@@ -1700,9 +1716,272 @@ begin
   'end;',
   'var w: word;',
   'begin',
+  '  w:=specialize DoIt<word>(3);',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGenProc_FunctionDelphi;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  'function DoIt<T>(a: T): T;',
+  'var i: T;',
+  'begin',
+  '  a:=i;',
+  '  Result:=a;',
+  'end;',
+  'var w: word;',
+  'begin',
   '  w:=DoIt<word>(3);',
   '']);
   ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGenProc_OverloadDuplicate;
+begin
+  StartProgram(false);
+  Add([
+  'generic procedure Fly<T>(a: T);',
+  'begin',
+  'end;',
+  'generic procedure Fly<T>(a: T);',
+  'begin',
+  'end;',
+  'begin',
+  '']);
+  CheckResolverException('Duplicate identifier "Fly" at afile.pp(2,22)',nDuplicateIdentifier);
+end;
+
+procedure TTestResolveGenerics.TestGenProc_MissingTemplatesFail;
+begin
+  StartProgram(false);
+  Add([
+  'generic procedure Run;',
+  'begin',
+  'end;',
+  'begin',
+  '']);
+  CheckParserException('Expected "<"',nParserExpectTokenError);
+end;
+
+procedure TTestResolveGenerics.TestGenProc_Forward;
+begin
+  StartProgram(false);
+  Add([
+  'generic procedure Fly<T>(a: T); forward;',
+  'procedure Run;',
+  'begin',
+  '  specialize Fly<word>(3);',
+  'end;',
+  'generic procedure Fly<T>(a: T);',
+  'var i: T;',
+  'begin',
+  '  i:=a;',
+  'end;',
+  'begin',
+  '  specialize Fly<boolean>(true);',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGenProc_External;
+begin
+  StartProgram(false);
+  Add([
+  'generic function Fly<T>(a: T): T; external name ''flap'';',
+  'procedure Run;',
+  'begin',
+  '  specialize Fly<word>(3);',
+  'end;',
+  'begin',
+  '  specialize Fly<boolean>(true);',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGenProc_UnitIntf;
+begin
+  AddModuleWithIntfImplSrc('unit2.pas',
+    LinesToStr([
+    'generic function Fly<T>(a: T): T;',
+    '']),
+    LinesToStr([
+    'generic function Fly<T>(a: T): T;',
+    'var i: T;',
+    'begin',
+    '  i:=a;',
+    'end;',
+    '']));
+  StartProgram(true);
+  Add([
+  'uses unit2;',
+  'var w: word;',
+  'begin',
+  '  w:=specialize Fly<word>(3);',
+  '  if specialize Fly<boolean>(false) then ;',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGenProc_BackRef1Fail;
+begin
+  StartProgram(false);
+  Add([
+  'generic function Fly<T>(a: Fly): T;',
+  'begin',
+  'end;',
+  'begin',
+  '']);
+  CheckResolverException('Wrong number of parameters specified for call to "function Fly<>(untyped)"',nWrongNumberOfParametersForCallTo);
+end;
+
+procedure TTestResolveGenerics.TestGenProc_BackRef2Fail;
+begin
+  StartProgram(false);
+  Add([
+  'generic function Fly<T>(a: Fly<word>): T;',
+  'begin',
+  'end;',
+  'begin',
+  '']);
+  CheckResolverException('Wrong number of parameters specified for call to "function Fly<>(untyped)"',nWrongNumberOfParametersForCallTo);
+end;
+
+procedure TTestResolveGenerics.TestGenProc_BackRef3Fail;
+begin
+  StartProgram(false);
+  Add([
+  'generic function Fly<T>(a: Fly<T>): T;',
+  'begin',
+  'end;',
+  'begin',
+  '']);
+  CheckResolverException('Wrong number of parameters specified for call to "function Fly<>(untyped)"',nWrongNumberOfParametersForCallTo);
+end;
+
+procedure TTestResolveGenerics.TestGenProc_CallSelf;
+begin
+  StartProgram(false);
+  Add([
+  'generic function Fly<T>(a: T): T;',
+  '  procedure Run;',
+  '  begin',
+  '    specialize Fly<T>(a);',
+  '    specialize Fly<word>(3);',
+  '  end;',
+  'begin',
+  '  specialize Fly<T>(a);',
+  '  specialize Fly<boolean>(true);',
+  'end;',
+  'begin',
+  '  specialize Fly<string>(''fast'');',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGenProc_ForwardConstraints;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  TObject = class end;',
+  '  TBird = class end;',
+  'var b: TBird;',
+  'generic function Fly<T: class>(a: T): T; forward;',
+  'procedure Run;',
+  'begin',
+  '  specialize Fly<TBird>(b);',
+  'end;',
+  'generic function Fly<T>(a: T): T;',
+  'begin',
+  'end;',
+  'begin',
+  '  specialize Fly<TBird>(b);',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGenProc_ForwardConstraintsRepeatFail;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  TObject = class end;',
+  'generic function Fly<T: class>(a: T): T; forward;',
+  'generic function Fly<T: class>(a: T): T;',
+  'begin',
+  'end;',
+  'begin',
+  '']);
+  CheckResolverException(sImplMustNotRepeatConstraints,nImplMustNotRepeatConstraints);
+end;
+
+procedure TTestResolveGenerics.TestGenProc_ForwardTempNameMismatch;
+begin
+  StartProgram(false);
+  Add([
+  'generic function Fly<T>(a: T): T; forward;',
+  'generic function Fly<B>(a: B): B;',
+  'begin',
+  'end;',
+  'begin',
+  '']);
+  CheckResolverException('Declaration of "Fly<B>" differs from previous declaration at afile.pp(2,23)',
+    nDeclOfXDiffersFromPrevAtY);
+end;
+
+procedure TTestResolveGenerics.TestGenProc_ForwardOverload;
+begin
+  StartProgram(false);
+  Add([
+  'generic function {#FlyA}Fly<T>(a: T; b: boolean): T; forward; overload;',
+  'generic function {#FlyB}Fly<T>(a: T; w: word): T; forward; overload;',
+  'procedure {#FlyC}Fly; overload;',
+  'begin',
+  '  specialize {@FlyA}Fly<longint>(1,true);',
+  '  specialize {@FlyB}Fly<string>(''ABC'',3);',
+  'end;',
+  'generic function Fly<T>(a: T; b: boolean): T;',
+  'begin',
+  'end;',
+  'generic function Fly<T>(a: T; w: word): T;',
+  'begin',
+  'end;',
+  'begin',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGenProc_NestedFail;
+begin
+  StartProgram(false);
+  Add([
+  'procedure Fly;',
+  '  generic procedure Run<T>(a: T);',
+  '  begin',
+  '  end;',
+  'begin',
+  '  Run<boolean>(true);',
+  'end;',
+  'begin',
+  '']);
+  CheckResolverException('Type parameters not allowed on nested procedure',nTypeParamsNotAllowedOnX);
+end;
+
+procedure TTestResolveGenerics.TestGenMethod_VirtualFail;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  TObject = class',
+  '    generic procedure Run<T>(a: T); virtual; abstract;',
+  '  end;',
+  'begin',
+  '']);
+  CheckResolverException('virtual, dynamic or message methods cannot have type parameters',
+    nXMethodsCannotHaveTypeParams);
 end;
 
 initialization

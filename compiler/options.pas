@@ -1481,9 +1481,20 @@ begin
                          Else
                            include(init_settings.localswitches,cs_check_var_copyout)
                        else
-                         IllegalPara(opt)
+                         IllegalPara(opt);
+                    'V':
+                      begin
+                        s:=upper(copy(more,j+1,length(more)-j));
+                        if s='GLOBAL-DYNAMIC' then
+                          init_settings.tlsmodel:=tlsm_global_dynamic
+                        else if s='LOCAL-EXEC' then
+                          init_settings.tlsmodel:=tlsm_local_exec
+                        else
+                          IllegalPara(opt);
+                        break;
+                      end;
                     else
-                       IllegalPara(opt);
+                      IllegalPara(opt);
                   end;
                   inc(j);
                 end;
@@ -2490,7 +2501,7 @@ begin
 {$push}
 {$warn 6018 off} { Unreachable code due to compile time evaluation }
                         if (target_info.system in systems_embedded) and
-                                                         ControllerSupport then
+                          ControllerSupport then
                           begin
                             s:=upper(copy(more,j+1,length(more)-j));
                             if not(SetControllerType(s,init_settings.controllertype)) then
@@ -4144,9 +4155,9 @@ begin
   if (tf_section_threadvars in target_info.flags) and (init_settings.tlsmodel=tlsm_none) then
     begin
       if cs_create_pic in init_settings.moduleswitches then
-        init_settings.tlsmodel:=tlsm_general
+        init_settings.tlsmodel:=tlsm_global_dynamic
       else
-        init_settings.tlsmodel:=tlsm_local;
+        init_settings.tlsmodel:=tlsm_local_exec;
     end;
 
   { set Mac OS X version default macros if not specified explicitly }

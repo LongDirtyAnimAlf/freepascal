@@ -151,10 +151,13 @@ interface
           aitconst_got,
           { offset of symbol itself from GOT }
           aitconst_gotoff_symbol,
+          { offset in TLS block }
+          aitconst_dtpoff,
           { ARM TLS code }
           aitconst_gottpoff,
-          aitconst_tpoff
-
+          aitconst_tpoff,
+          aitconst_tlsgd,
+          aitconst_tlsdesc
         );
 
         tairealconsttype = (
@@ -637,9 +640,9 @@ interface
           is_global : boolean;
           sym       : tasmsymbol;
           size      : asizeint;
-          constructor Create(const _name : string;_size : asizeint; def: tdef);
-          constructor Create_hidden(const _name : string;_size : asizeint; def: tdef);
-          constructor Create_global(const _name : string;_size : asizeint; def: tdef);
+          constructor Create(const _name: string; _size: asizeint; def: tdef; _typ: Tasmsymtype);
+          constructor Create_hidden(const _name: string; _size: asizeint; def: tdef; _typ: Tasmsymtype);
+          constructor Create_global(const _name: string; _size: asizeint; def: tdef; _typ: Tasmsymtype);
           constructor ppuload(t:taitype;ppufile:tcompilerppufile);override;
           procedure ppuwrite(ppufile:tcompilerppufile);override;
           procedure derefimpl;override;
@@ -1284,12 +1287,12 @@ implementation
                              TAI_DATABLOCK
  ****************************************************************************}
 
-    constructor tai_datablock.Create(const _name : string;_size : asizeint; def: tdef);
+    constructor tai_datablock.Create(const _name : string;_size : asizeint; def: tdef; _typ:Tasmsymtype);
 
       begin
          inherited Create;
          typ:=ait_datablock;
-         sym:=current_asmdata.DefineAsmSymbol(_name,AB_LOCAL,AT_DATA,def);
+         sym:=current_asmdata.DefineAsmSymbol(_name,AB_LOCAL,_typ,def);
          { keep things aligned }
          if _size<=0 then
            _size:=sizeof(aint);
@@ -1297,13 +1300,13 @@ implementation
          is_global:=false;
       end;
 
-    constructor tai_datablock.Create_hidden(const _name: string; _size: asizeint; def: tdef);
+    constructor tai_datablock.Create_hidden(const _name: string; _size: asizeint; def: tdef; _typ:Tasmsymtype);
       begin
         if tf_supports_hidden_symbols in target_info.flags then
           begin
             inherited Create;
             typ:=ait_datablock;
-            sym:=current_asmdata.DefineAsmSymbol(_name,AB_PRIVATE_EXTERN,AT_DATA,def);
+            sym:=current_asmdata.DefineAsmSymbol(_name,AB_PRIVATE_EXTERN,_typ,def);
             { keep things aligned }
             if _size<=0 then
               _size:=sizeof(aint);
@@ -1311,15 +1314,15 @@ implementation
             is_global:=true;
           end
         else
-          Create(_name,_size,def);
+          Create(_name,_size,def,_typ);
       end;
 
 
-    constructor tai_datablock.Create_global(const _name : string;_size : asizeint; def: tdef);
+    constructor tai_datablock.Create_global(const _name : string;_size : asizeint; def: tdef; _typ:Tasmsymtype);
       begin
          inherited Create;
          typ:=ait_datablock;
-         sym:=current_asmdata.DefineAsmSymbol(_name,AB_GLOBAL,AT_DATA,def);
+         sym:=current_asmdata.DefineAsmSymbol(_name,AB_GLOBAL,_typ,def);
          { keep things aligned }
          if _size<=0 then
            _size:=sizeof(aint);
@@ -2098,6 +2101,16 @@ implementation
           aitconst_got:
             result:=sizeof(pint);
           aitconst_gotoff_symbol:
+            result:=4;
+          aitconst_gottpoff:
+            result:=4;
+          aitconst_tlsgd:
+            result:=4;
+          aitconst_tpoff:
+            result:=4;
+          aitconst_tlsdesc:
+            result:=4;
+          aitconst_dtpoff:
             result:=4;
           else
             internalerror(200603253);

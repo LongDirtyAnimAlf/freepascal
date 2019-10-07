@@ -330,6 +330,7 @@ type
     Procedure TestProc_OverloadForward;
     Procedure TestProc_OverloadIntfImpl;
     Procedure TestProc_OverloadNested;
+    Procedure TestProc_OverloadNestedForward;
     Procedure TestProc_OverloadUnitCycle;
     Procedure TestProc_Varargs;
     Procedure TestProc_ConstOrder;
@@ -524,6 +525,8 @@ type
     Procedure TestClass_ExternalOverrideFail;
     Procedure TestClass_ExternalVar;
     Procedure TestClass_Const;
+    Procedure TestClass_LocalConstDuplicate;
+    // ToDo: Procedure TestAdvRecord_LocalConstDuplicate;
     Procedure TestClass_LocalVarSelfFail;
     Procedure TestClass_ArgSelfFail;
     Procedure TestClass_NestedProcSelf;
@@ -567,6 +570,7 @@ type
     Procedure TestExternalClass_DuplicateVarFail;
     Procedure TestExternalClass_Method;
     Procedure TestExternalClass_ClassMethod;
+    Procedure TestExternalClass_ClassMethodStatic;
     Procedure TestExternalClass_FunctionResultInTypeCast;
     Procedure TestExternalClass_NonExternalOverride;
     Procedure TestExternalClass_OverloadHint;
@@ -666,6 +670,7 @@ type
     Procedure TestClassHelper_PassProperty;
     Procedure TestExtClassHelper_ClassVar;
     Procedure TestExtClassHelper_Method_Call;
+    Procedure TestExtClassHelper_ClassMethod_MissingStatic;
     Procedure TestRecordHelper_ClassVar;
     Procedure TestRecordHelper_Method_Call;
     Procedure TestRecordHelper_Constructor;
@@ -4085,6 +4090,52 @@ procedure TTestModule.TestProc_OverloadNested;
 begin
   StartProgram(false);
   Add([
+  'procedure doit(vA: longint);',
+  '  procedure DoIt(vA, vB: longint); overload;',
+  '  begin',
+  '    doit(1);',
+  '    doit(1,2);',
+  '  end;',
+  '  procedure doit(vA, vB, vC: longint);',
+  '  begin',
+  '    doit(1);',
+  '    doit(1,2);',
+  '    doit(1,2,3);',
+  '  end;',
+  'begin',
+  '  doit(1);',
+  '  doit(1,2);',
+  '  doit(1,2,3);',
+  'end;',
+  'begin // main',
+  '  doit(1);']);
+  ConvertProgram;
+  CheckSource('TestProcedureOverloadNested',
+    LinesToStr([ // statements
+    'this.doit = function (vA) {',
+    '  function DoIt$1(vA, vB) {',
+    '    $mod.doit(1);',
+    '    DoIt$1(1, 2);',
+    '  };',
+    '  function doit$2(vA, vB, vC) {',
+    '    $mod.doit(1);',
+    '    DoIt$1(1, 2);',
+    '    doit$2(1, 2, 3);',
+    '  };',
+    '  $mod.doit(1);',
+    '  DoIt$1(1, 2);',
+    '  doit$2(1, 2, 3);',
+    '};',
+    '']),
+    LinesToStr([
+    '$mod.doit(1);',
+    '']));
+end;
+
+procedure TTestModule.TestProc_OverloadNestedForward;
+begin
+  StartProgram(false);
+  Add([
   'procedure DoIt(vA: longint); overload; forward;',
   'procedure DoIt(vB, vC: longint); overload;',
   'begin // 2 param overload',
@@ -4138,7 +4189,7 @@ begin
   '  doit(1);',
   '  doit(1,2);']);
   ConvertProgram;
-  CheckSource('TestProcedureOverloadNested',
+  CheckSource('TestProc_OverloadNestedForward',
     LinesToStr([ // statements
     'this.DoIt$1 = function (vB, vC) {',
     '  $mod.DoIt(1);',
@@ -14026,6 +14077,65 @@ begin
     '']));
 end;
 
+procedure TTestModule.TestClass_LocalConstDuplicate;
+begin
+  StartProgram(false);
+  Add([
+  'type',
+  '  TObject = class',
+  '    const cI: longint = 3;',
+  '    procedure Fly;',
+  '    procedure Run;',
+  '  end;',
+  '  TBird = class',
+  '    procedure Go;',
+  '  end;',
+  'procedure tobject.fly;',
+  'const cI: word = 4;',
+  'begin',
+  '  if cI=Self.cI then ;',
+  'end;',
+  'procedure tobject.run;',
+  'const cI: word = 5;',
+  'begin',
+  '  if cI=Self.cI then ;',
+  'end;',
+  'procedure tbird.go;',
+  'const cI: word = 6;',
+  'begin',
+  '  if cI=Self.cI then ;',
+  'end;',
+  'begin',
+  '']);
+  ConvertProgram;
+  CheckSource('TestClass_LocalConstDuplicate',
+    LinesToStr([
+    'rtl.createClass($mod, "TObject", null, function () {',
+    '  this.cI = 3;',
+    '  this.$init = function () {',
+    '  };',
+    '  this.$final = function () {',
+    '  };',
+    '  var cI$1 = 4;',
+    '  this.Fly = function () {',
+    '    if (cI$1 === this.cI) ;',
+    '  };',
+    '  var cI$2 = 5;',
+    '  this.Run = function () {',
+    '    if (cI$2 === this.cI) ;',
+    '  };',
+    '});',
+    'rtl.createClass($mod, "TBird", $mod.TObject, function () {',
+    '  var cI$3 = 6;',
+    '  this.Go = function () {',
+    '    if (cI$3 === this.cI) ;',
+    '  };',
+    '});',
+    '']),
+    LinesToStr([
+    '']));
+end;
+
 procedure TTestModule.TestClass_LocalVarSelfFail;
 begin
   StartProgram(false);
@@ -15656,14 +15766,17 @@ begin
   '    class procedure DoIt(Id: longint = 1); external name ''$Execute'';',
   '  end;',
   '  TExtB = TExtA;',
+  'var p: Pointer;',
   'begin',
   '  texta.doit;',
   '  texta.doit();',
   '  texta.doit(2);',
+  '  p:=@TExtA.DoIt;',
   '  with texta do begin',
   '    doit;',
   '    doit();',
   '    doit(3);',
+  '    p:=@DoIt;',
   '  end;',
   '  textb.doit;',
   '  textb.doit();',
@@ -15677,20 +15790,62 @@ begin
   ConvertProgram;
   CheckSource('TestExternalClass_ClassMethod',
     LinesToStr([ // statements
+    'this.p = null;',
     '']),
     LinesToStr([ // $mod.$main
     'ExtObj.$Execute(1);',
     'ExtObj.$Execute(1);',
     'ExtObj.$Execute(2);',
+    '$mod.p = rtl.createCallback(ExtObj, "$Execute");',
     'ExtObj.$Execute(1);',
     'ExtObj.$Execute(1);',
     'ExtObj.$Execute(3);',
+    '$mod.p = rtl.createCallback(ExtObj, "$Execute");',
     'ExtObj.$Execute(1);',
     'ExtObj.$Execute(1);',
     'ExtObj.$Execute(4);',
     'ExtObj.$Execute(1);',
     'ExtObj.$Execute(1);',
     'ExtObj.$Execute(5);',
+    '']));
+end;
+
+procedure TTestModule.TestExternalClass_ClassMethodStatic;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TExtA = class external name ''ExtObj''',
+  '    class procedure DoIt(Id: longint = 1); static;',
+  '  end;',
+  'var p: Pointer;',
+  'begin',
+  '  texta.doit;',
+  '  texta.doit();',
+  '  texta.doit(2);',
+  '  p:=@TExtA.DoIt;',
+  '  with texta do begin',
+  '    doit;',
+  '    doit();',
+  '    doit(3);',
+  '    p:=@DoIt;',
+  '  end;',
+  '']);
+  ConvertProgram;
+  CheckSource('TestExternalClass_ClassMethodStatic',
+    LinesToStr([ // statements
+    'this.p = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    'ExtObj.DoIt(1);',
+    'ExtObj.DoIt(1);',
+    'ExtObj.DoIt(2);',
+    '$mod.p = ExtObj.DoIt;',
+    'ExtObj.DoIt(1);',
+    'ExtObj.DoIt(1);',
+    'ExtObj.DoIt(3);',
+    '$mod.p = ExtObj.DoIt;',
     '']));
 end;
 
@@ -15742,32 +15897,33 @@ end;
 procedure TTestModule.TestExternalClass_NonExternalOverride;
 begin
   StartProgram(false);
-  Add('{$modeswitch externalclass}');
-  Add('type');
-  Add('  TExtA = class external name ''ExtObjA''');
-  Add('    procedure ProcA; virtual;');
-  Add('    procedure ProcB; virtual;');
-  Add('  end;');
-  Add('  TExtB = class external name ''ExtObjB'' (TExtA)');
-  Add('  end;');
-  Add('  TExtC = class (TExtB)');
-  Add('    procedure ProcA; override;');
-  Add('  end;');
-  Add('procedure TExtC.ProcA;');
-  Add('begin');
-  Add('  ProcA;');
-  Add('  Self.ProcA;');
-  Add('  ProcB;');
-  Add('  Self.ProcB;');
-  Add('end;');
-  Add('var');
-  Add('  A: texta;');
-  Add('  B: textb;');
-  Add('  C: textc;');
-  Add('begin');
-  Add('  a.proca;');
-  Add('  b.proca;');
-  Add('  c.proca;');
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TExtA = class external name ''ExtObjA''',
+  '    procedure ProcA; virtual;',
+  '    procedure ProcB; virtual;',
+  '  end;',
+  '  TExtB = class external name ''ExtObjB'' (TExtA)',
+  '  end;',
+  '  TExtC = class (TExtB)',
+  '    procedure ProcA; override;',
+  '  end;',
+  'procedure TExtC.ProcA;',
+  'begin',
+  '  ProcA;',
+  '  Self.ProcA;',
+  '  ProcB;',
+  '  Self.ProcB;',
+  'end;',
+  'var',
+  '  A: texta;',
+  '  B: textb;',
+  '  C: textc;',
+  'begin',
+  '  a.proca;',
+  '  b.proca;',
+  '  c.proca;']);
   ConvertProgram;
   CheckSource('TestExternalClass_NonExternalOverride',
     LinesToStr([ // statements
@@ -16873,8 +17029,8 @@ begin
     '    function Sub() {',
     '    };',
     '    var f = null;',
-    '    f = rtl.createCallback($Self, "DoIt");',
-    '    f = rtl.createCallback($Self, "DoIt").bind(null, 13);',
+    '    f = $Self.DoIt;',
+    '    f = $Self.DoIt.bind(null, 13);',
     '    f = Sub;',
     '    f = $mod.GetIt;',
     '  };',
@@ -16890,7 +17046,7 @@ begin
     '  f = $mod.GetIt;',
     '  f = $mod.GetIt.bind(null, 3);',
     '  f = Sub;',
-    '  f = rtl.createCallback(o, "DoIt");',
+    '  f = $mod.TObject.DoIt;',
     '  f = fi.bind(null, 4);',
     '  return Result;',
     '};',
@@ -21494,6 +21650,27 @@ begin
     '$with1.Fly(2);',
     '$mod.p = rtl.createCallback($mod.Obj, "Fly");',
     '']));
+end;
+
+procedure TTestModule.TestExtClassHelper_ClassMethod_MissingStatic;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TExtA = class external name ''ExtObj''',
+  '    procedure Run(w: word = 10);',
+  '  end;',
+  '  THelper = class helper for TExtA',
+  '    class procedure Fly;',
+  '  end;',
+  'class procedure THelper.Fly;',
+  'begin end;',
+  'begin',
+  '']);
+  SetExpectedPasResolverError(sHelperClassMethodForExtClassMustBeStatic,
+                              nHelperClassMethodForExtClassMustBeStatic);
+  ConvertProgram;
 end;
 
 procedure TTestModule.TestRecordHelper_ClassVar;

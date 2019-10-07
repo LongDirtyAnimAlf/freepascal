@@ -1696,8 +1696,8 @@ implementation
             { allocate got register if needed }
             allocate_got_register(aktproccode);
 
-            if pi_uses_threadvar in flags then
-              allocate_tls_register(aktproccode);
+            { allocate got register if needed }
+            allocate_tls_register(aktproccode);
 
             { Allocate space in temp/registers for parast and localst }
             current_filepos:=entrypos;
@@ -1801,12 +1801,12 @@ implementation
 
             { make sure the got/pic register doesn't get freed in the }
             { middle of a loop                                        }
-            if (cs_create_pic in current_settings.moduleswitches) and
-               (pi_needs_got in flags) and
-               (got<>NR_NO) then
+            if (tf_pic_uses_got in target_info.flags) and
+              (pi_needs_got in flags) and
+              (got<>NR_NO) then
               cg.a_reg_sync(aktproccode,got);
 
-            if (pi_uses_threadvar in flags) and
+            if (pi_needs_tls in flags) and
               (tlsoffset<>NR_NO) then
               cg.a_reg_sync(aktproccode,tlsoffset);
 
@@ -1850,10 +1850,9 @@ implementation
             cg.g_maybe_got_init(templist);
             aktproccode.insertlistafter(headertai,templist);
 
-            if (pi_uses_threadvar in flags) and (tf_section_threadvars in target_info.flags) then
-              cg.g_maybe_tls_init(templist);
+            { init tls if needed }
+            cg.g_maybe_tls_init(templist);
             aktproccode.insertlistafter(stackcheck_asmnode.currenttai,templist);
-
 
             { re-enable if more code at the end is ever generated here
             cg.set_regalloc_live_range_direction(rad_forward);
@@ -1879,8 +1878,7 @@ implementation
               maintain location lists }
             procdef.parast.SymList.ForEachCall(@translate_registers,templist);
             procdef.localst.SymList.ForEachCall(@translate_registers,templist);
-            if (cs_create_pic in current_settings.moduleswitches) and
-               (pi_needs_got in flags) and
+            if (tf_pic_uses_got in target_info.flags) and (pi_needs_got in flags) and
                not(cs_no_regalloc in current_settings.globalswitches) and
                (got<>NR_NO) then
               cg.translate_register(got);

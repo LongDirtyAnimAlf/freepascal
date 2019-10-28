@@ -23,7 +23,7 @@ unit aoptx86;
 
 {$i fpcdefs.inc}
 
-{ $define DEBUG_AOPTCPU}
+{$define DEBUG_AOPTCPU}
 
   interface
 
@@ -39,6 +39,7 @@ unit aoptx86;
         function RegLoadedWithNewValue(reg : tregister; hp : tai) : boolean; override;
         function InstructionLoadsFromReg(const reg : TRegister; const hp : tai) : boolean; override;
         function RegReadByInstruction(reg : TRegister; hp : tai) : boolean;
+        function GetNextInstructionUsingReg(Current: tai; out Next: tai; reg: TRegister): Boolean;
       protected
         { checks whether loading a new value in reg1 overwrites the entirety of reg2 }
         function Reg1WriteOverwritesReg2Entirely(reg1, reg2: tregister): boolean;
@@ -272,6 +273,19 @@ unit aoptx86;
         end;
         InstrReadsFlags := false;
       end;
+
+
+  function TX86AsmOptimizer.GetNextInstructionUsingReg(Current: tai; out Next: tai; reg: TRegister): Boolean;
+    begin
+      Next:=Current;
+      repeat
+        Result:=GetNextInstruction(Next,Next);
+      until not (Result) or
+            not(cs_opt_level3 in current_settings.optimizerswitches) or
+            (Next.typ<>ait_instruction) or
+            RegInInstruction(reg,Next) or
+            is_calljmp(taicpu(Next).opcode);
+    end;
 
 
   function TX86AsmOptimizer.InstructionLoadsFromReg(const reg: TRegister;const hp: tai): boolean;
@@ -2087,7 +2101,7 @@ unit aoptx86;
 
     function TX86AsmOptimizer.OptPass1LEA(var p : tai) : boolean;
       var
-        hp1 : tai;
+        hp1, hp2, hp3: tai;
         l : ASizeInt;
       begin
         Result:=false;
@@ -2180,6 +2194,84 @@ unit aoptx86;
                 hp1.Free;
                 result:=true;
               end;
+          end;
+        { changes
+            lea offset1(regX), reg1
+            lea offset2(reg1), reg1
+            to
+            lea offset1+offset2(regX), reg1 }
+        if GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[1]^.reg) and
+          MatchInstruction(hp1,A_LEA,[S_L]) and
+          MatchOperand(taicpu(p).oper[1]^,taicpu(hp1).oper[1]^) and
+          (taicpu(hp1).oper[0]^.ref^.base=taicpu(p).oper[1]^.reg) and
+          (taicpu(p).oper[0]^.ref^.index=NR_NO) and
+          (taicpu(p).oper[0]^.ref^.relsymbol=nil) and
+          (taicpu(p).oper[0]^.ref^.scalefactor in [0,1]) and
+          (taicpu(p).oper[0]^.ref^.segment=NR_NO) and
+          (taicpu(p).oper[0]^.ref^.symbol=nil) and
+          (taicpu(p).oper[0]^.ref^.index=taicpu(hp1).oper[0]^.ref^.index) and
+          (taicpu(p).oper[0]^.ref^.relsymbol=taicpu(hp1).oper[0]^.ref^.relsymbol) and
+          (taicpu(p).oper[0]^.ref^.scalefactor=taicpu(hp1).oper[0]^.ref^.scalefactor) and
+          (taicpu(p).oper[0]^.ref^.segment=taicpu(hp1).oper[0]^.ref^.segment) and
+          (taicpu(p).oper[0]^.ref^.symbol=taicpu(hp1).oper[0]^.ref^.symbol) then
+          begin
+            DebugMsg(SPeepholeOptimization + 'LeaLea2Lea done',p);
+            inc(taicpu(hp1).oper[0]^.ref^.offset,taicpu(p).oper[0]^.ref^.offset);
+            taicpu(hp1).oper[0]^.ref^.base:=taicpu(p).oper[0]^.ref^.base;
+            asml.Remove(p);
+            p.Free;
+            p:=hp1;
+            result:=true;
+          end;
+        { replace
+            lea    x(stackpointer),stackpointer
+            call   procname
+            lea    -x(stackpointer),stackpointer
+            ret
+          by
+            jmp    procname
+
+          this should never hurt except when pic is used, not sure
+          how to handle it then
+
+          but do it only on level 4 because it destroys stack back traces
+        }
+        if (cs_opt_level4 in current_settings.optimizerswitches) and
+          not(cs_create_pic in current_settings.moduleswitches) and
+          (taicpu(p).oper[1]^.reg=NR_STACK_POINTER_REG) and
+          (taicpu(p).oper[0]^.ref^.base=NR_STACK_POINTER_REG) and
+          (taicpu(p).oper[0]^.ref^.index=NR_NO) and
+          (taicpu(p).oper[0]^.ref^.relsymbol=nil) and
+          (taicpu(p).oper[0]^.ref^.scalefactor in [0,1]) and
+          (taicpu(p).oper[0]^.ref^.segment=NR_NO) and
+          (taicpu(p).oper[0]^.ref^.symbol=nil) and
+          GetNextInstruction(p, hp1) and
+          MatchInstruction(hp1,A_CALL,[S_NO]) and
+          GetNextInstruction(hp1, hp2) and
+          MatchInstruction(hp2,A_LEA,[taicpu(p).opsize]) and
+          (taicpu(hp2).oper[1]^.reg=NR_STACK_POINTER_REG) and
+          (taicpu(p).oper[0]^.ref^.base=taicpu(hp2).oper[0]^.ref^.base) and
+          (taicpu(p).oper[0]^.ref^.index=taicpu(hp2).oper[0]^.ref^.index) and
+          (taicpu(p).oper[0]^.ref^.offset=-taicpu(hp2).oper[0]^.ref^.offset) and
+          (taicpu(p).oper[0]^.ref^.relsymbol=taicpu(hp2).oper[0]^.ref^.relsymbol) and
+          (taicpu(p).oper[0]^.ref^.scalefactor=taicpu(hp2).oper[0]^.ref^.scalefactor) and
+          (taicpu(p).oper[0]^.ref^.segment=taicpu(hp2).oper[0]^.ref^.segment) and
+          (taicpu(p).oper[0]^.ref^.symbol=taicpu(hp2).oper[0]^.ref^.symbol) and
+          GetNextInstruction(hp2, hp3) and
+          MatchInstruction(hp3,A_RET,[S_NO]) and
+          (taicpu(hp3).ops=0) then
+          begin
+            DebugMsg(SPeepholeOptimization + 'LeaCallLeaRet2Jmp done',p);
+            taicpu(hp1).opcode:=A_JMP;
+            taicpu(hp1).is_jmp:=true;
+            asml.remove(p);
+            asml.remove(hp2);
+            asml.remove(hp3);
+            p.free;
+            hp2.free;
+            hp3.free;
+            p:=hp1;
+            Result:=true;
           end;
       end;
 

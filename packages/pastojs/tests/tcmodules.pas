@@ -588,6 +588,9 @@ type
     Procedure TestExternalClass_FuncClassOf_New;
     Procedure TestExternalClass_New_PasClassFail;
     Procedure TestExternalClass_New_PasClassBracketsFail;
+    Procedure TestExternalClass_NewExtName;
+    Procedure TestExternalClass_Constructor;
+    Procedure TestExternalClass_ConstructorBrackets;
     Procedure TestExternalClass_LocalConstSameName;
     Procedure TestExternalClass_ReintroduceOverload;
     Procedure TestExternalClass_Inherited;
@@ -11079,14 +11082,14 @@ begin
     '  };',
     '  this.GetInt = function () {',
     '    var Result = 0;',
-    '    Result = this.Fx;',
+    '    Result = $mod.TRec.Fx;',
     '    return Result;',
     '  };',
     '  this.SetInt = function (Value) {',
     '  };',
     '  this.DoIt = function () {',
-    '    $mod.TRec.Fy = this.Fx + 1;',
-    '    this.SetInt(this.GetInt() + 1);',
+    '    $mod.TRec.Fy = $mod.TRec.Fx + 1;',
+    '    $mod.TRec.SetInt($mod.TRec.GetInt() + 1);',
     '  };',
     '}, true);',
     'this.r = $mod.TRec.$new();',
@@ -11316,7 +11319,7 @@ begin
     '      $mod.TRec.TPoint.Count = this.Count + 3;',
     '    };',
     '    this.DoThat = function () {',
-    '      $mod.TRec.TPoint.Count = this.Count + 4;',
+    '      $mod.TRec.TPoint.Count = $mod.TRec.TPoint.Count + 4;',
     '    };',
     '  }, true);',
     '  this.i = 0;',
@@ -11512,14 +11515,16 @@ begin
   'class constructor tpoint.init;',
   'begin',
   '  count:=count+1;',
-  '  x:=3;',
-  '  tpoint.x:=4;',
+  '  x:=x+3;',
+  '  tpoint.x:=tpoint.x+4;',
   '  fly;',
   '  tpoint.fly;',
   'end;',
   'var r: TPoint;',
   'begin',
-  '  r.x:=10;',
+  '  r.x:=r.x+10;',
+  '  r.Fly;',
+  '  r.Fly();',
   '']);
   ConvertProgram;
   CheckSource('TestAdvRecord_ClassConstructor_Program',
@@ -11541,12 +11546,14 @@ begin
     LinesToStr([ // $mod.$main
     '(function () {',
     '  $mod.count = $mod.count + 1;',
-    '  $mod.TPoint.x = 3;',
-    '  $mod.TPoint.x = 4;',
+    '  $mod.TPoint.x = $mod.TPoint.x + 3;',
+    '  $mod.TPoint.x = $mod.TPoint.x + 4;',
     '  $mod.TPoint.Fly();',
     '  $mod.TPoint.Fly();',
     '})();',
-    '$mod.TPoint.x = 10;',
+    '$mod.TPoint.x = $mod.r.x + 10;',
+    '$mod.r.Fly();',
+    '$mod.r.Fly();',
     '']));
 end;
 
@@ -16369,27 +16376,29 @@ end;
 procedure TTestModule.TestExternalClass_New;
 begin
   StartProgram(false);
-  Add('{$modeswitch externalclass}');
-  Add('type');
-  Add('  TExtA = class external name ''ExtA''');
-  Add('    constructor New;');
-  Add('    constructor New(i: longint; j: longint = 2);');
-  Add('  end;');
-  Add('var');
-  Add('  A: texta;');
-  Add('begin');
-  Add('  a:=texta.new;');
-  Add('  a:=texta(texta.new);');
-  Add('  a:=texta.new();');
-  Add('  a:=texta.new(1);');
-  Add('  with texta do begin');
-  Add('    a:=new;');
-  Add('    a:=new();');
-  Add('    a:=new(2);');
-  Add('  end;');
-  Add('  a:=test1.texta.new;');
-  Add('  a:=test1.texta.new();');
-  Add('  a:=test1.texta.new(3);');
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TExtA = class external name ''ExtA''',
+  '    constructor New;',
+  '    constructor New(i: longint; j: longint = 2);',
+  '  end;',
+  'var',
+  '  A: texta;',
+  'begin',
+  '  a:=texta.new;',
+  '  a:=texta(texta.new);',
+  '  a:=texta.new();',
+  '  a:=texta.new(1);',
+  '  with texta do begin',
+  '    a:=new;',
+  '    a:=new();',
+  '    a:=new(2);',
+  '  end;',
+  '  a:=test1.texta.new;',
+  '  a:=test1.texta.new();',
+  '  a:=test1.texta.new(3);',
+  '']);
   ConvertProgram;
   CheckSource('TestExternalClass_New',
     LinesToStr([ // statements
@@ -16530,6 +16539,134 @@ begin
   '']);
   SetExpectedPasResolverError(sJSNewNotSupported,nJSNewNotSupported);
   ConvertProgram;
+end;
+
+procedure TTestModule.TestExternalClass_NewExtName;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TExtA = class external name ''ExtA''',
+  '    constructor New; external name ''Other'';',
+  '    constructor New(i: longint; j: longint = 2); external name ''A.B'';',
+  '  end;',
+  'var',
+  '  A: texta;',
+  'begin',
+  '  a:=texta.new;',
+  '  a:=texta(texta.new);',
+  '  a:=texta.new();',
+  '  a:=texta.new(1);',
+  '  with texta do begin',
+  '    a:=new;',
+  '    a:=new();',
+  '    a:=new(2);',
+  '  end;',
+  '  a:=test1.texta.new;',
+  '  a:=test1.texta.new();',
+  '  a:=test1.texta.new(3);',
+  '']);
+  ConvertProgram;
+  CheckSource('TestExternalClass_NewExtName',
+    LinesToStr([ // statements
+    'this.A = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.A = new Other();',
+    '$mod.A = new Other();',
+    '$mod.A = new Other();',
+    '$mod.A = new A.B(1,2);',
+    '$mod.A = new Other();',
+    '$mod.A = new Other();',
+    '$mod.A = new A.B(2,2);',
+    '$mod.A = new Other();',
+    '$mod.A = new Other();',
+    '$mod.A = new A.B(3,2);',
+    '']));
+end;
+
+procedure TTestModule.TestExternalClass_Constructor;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TExtA = class external name ''ExtA''',
+  '    constructor Create;',
+  '    constructor Create(i: longint; j: longint = 2);',
+  '  end;',
+  'var',
+  '  A: texta;',
+  'begin',
+  '  a:=texta.create;',
+  '  a:=texta(texta.create);',
+  '  a:=texta.create();',
+  '  a:=texta.create(1);',
+  '  with texta do begin',
+  '    a:=create;',
+  '    a:=create();',
+  '    a:=create(2);',
+  '  end;',
+  '  a:=test1.texta.create;',
+  '  a:=test1.texta.create();',
+  '  a:=test1.texta.create(3);',
+  '']);
+  ConvertProgram;
+  CheckSource('TestExternalClass_Constructor',
+    LinesToStr([ // statements
+    'this.A = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.A = new ExtA.Create();',
+    '$mod.A = new ExtA.Create();',
+    '$mod.A = new ExtA.Create();',
+    '$mod.A = new ExtA.Create(1,2);',
+    '$mod.A = new ExtA.Create();',
+    '$mod.A = new ExtA.Create();',
+    '$mod.A = new ExtA.Create(2,2);',
+    '$mod.A = new ExtA.Create();',
+    '$mod.A = new ExtA.Create();',
+    '$mod.A = new ExtA.Create(3,2);',
+    '']));
+end;
+
+procedure TTestModule.TestExternalClass_ConstructorBrackets;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TExtA = class external name ''ExtA''',
+  '    constructor Create; external name ''{}'';',
+  '  end;',
+  'var',
+  '  A: texta;',
+  'begin',
+  '  a:=texta.create;',
+  '  a:=texta(texta.create);',
+  '  a:=texta.create();',
+  '  with texta do begin',
+  '    a:=create;',
+  '    a:=create();',
+  '  end;',
+  '  a:=test1.texta.create;',
+  '  a:=test1.texta.create();',
+  '']);
+  ConvertProgram;
+  CheckSource('TestExternalClass_ConstructorBrackets',
+    LinesToStr([ // statements
+    'this.A = null;',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.A = {};',
+    '$mod.A = {};',
+    '$mod.A = {};',
+    '$mod.A = {};',
+    '$mod.A = {};',
+    '$mod.A = {};',
+    '$mod.A = {};',
+    '']));
 end;
 
 procedure TTestModule.TestExternalClass_LocalConstSameName;
@@ -18105,13 +18242,13 @@ begin
     '        return this.FBirdIntf;',
     '      },',
     '    "{489289DE-FDE2-34A6-8288-39119022B1B4}": function () {',
-    '        return this.$class.GetEagleIntf();',
+    '        return this.GetEagleIntf();',
     '      },',
     '    "{489289DE-FDE2-34A6-8288-39118EF16074}": function () {',
     '        return rtl.getIntfT(this.FDoveObj, $mod.IDove);',
     '      },',
     '    "{B89289DE-FDE2-34A6-8288-3911CBDCB359}": function () {',
-    '        return rtl.getIntfT(this.$class.GetSwallowObj(), $mod.ISwallow);',
+    '        return rtl.getIntfT(this.GetSwallowObj(), $mod.ISwallow);',
     '      }',
     '  };',
     '});',
@@ -21091,7 +21228,7 @@ begin
     '  };',
     '  this.GetSpeed = function () {',
     '    var Result = 0;',
-    '    this.SetSpeed(this.GetSpeed() + 12);',
+    '    $mod.TObject.SetSpeed($mod.TObject.GetSpeed() + 12);',
     '    $mod.TObjHelper.SetLeft($mod.TObjHelper.GetLeft() + 13);',
     '    return Result;',
     '  };',
@@ -21101,7 +21238,7 @@ begin
     'rtl.createHelper($mod, "TObjHelper", null, function () {',
     '  this.GetLeft = function () {',
     '    var Result = 0;',
-    '    this.SetSpeed(this.GetSpeed() + 12);',
+    '    $mod.TObject.SetSpeed($mod.TObject.GetSpeed() + 12);',
     '    $mod.TObjHelper.SetLeft($mod.TObjHelper.GetLeft() + 13);',
     '    return Result;',
     '  };',
@@ -22881,7 +23018,7 @@ begin
     '  this.GetField = function () {',
     '    var Result = 0;',
     '    $mod.THelper.Fly.call({',
-    '      p: this.GetField(),',
+    '      p: $mod.TObject.GetField(),',
     '      get: function () {',
     '          return this.p;',
     '        },',

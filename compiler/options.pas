@@ -1678,16 +1678,10 @@ begin
                    Message2(option_obsolete_switch_use_new,'-Fg','-Fl');
                  'l' :
                    begin
-                     if path_absolute(More) then
-                       if ispara then
-                         ParaLibraryPath.AddPath(sysrootpath,More,false)
-                       else
-                         LibrarySearchPath.AddPath(sysrootpath,More,true)
+                     if ispara then
+                       ParaLibraryPath.AddPath(sysrootpath,More,false)
                      else
-                       if ispara then
-                         ParaLibraryPath.AddPath('',More,false)
-                       else
-                         LibrarySearchPath.AddPath('',More,true);
+                       LibrarySearchPath.AddPath(sysrootpath,More,true)
                    end;
                  'L' :
                    begin
@@ -4260,7 +4254,8 @@ begin
         end
       else
         begin
-          if not(FPUARM_HAS_VFP_EXTENSION in fpu_capabilities[init_settings.fputype]) then
+          if (not(FPUARM_HAS_VFP_EXTENSION in fpu_capabilities[init_settings.fputype]))
+	     or (target_info.system = system_arm_darwin) then
             begin
               Message(option_illegal_fpu_eabihf);
               StopOptions(1);

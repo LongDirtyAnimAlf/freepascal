@@ -80,6 +80,7 @@ const
   nMisplacedGlobalCompilerSwitch = 1029;
   nLogMacroXSetToY = 1030;
   nInvalidDispatchFieldName = 1031;
+  nErrWrongSwitchToggle = 1032;
 
 // resourcestring patterns of messages
 resourcestring
@@ -116,6 +117,7 @@ resourcestring
   SMisplacedGlobalCompilerSwitch = 'Misplaced global compiler switch, ignored';
   SLogMacroXSetToY = 'Macro %s set to %s';
   SInvalidDispatchFieldName = 'Invalid Dispatch field name';
+  SErrWrongSwitchToggle = 'Wrong switch toggle, use ON/OFF or +/-';
 
 type
   TMessageType = (
@@ -138,7 +140,7 @@ type
     tkIdentifier,
     tkString,
     tkNumber,
-    tkChar,
+    tkChar, // ^A .. ^Z
     // Simple (one-character) tokens
     tkBraceOpen,             // '('
     tkBraceClose,            // ')'
@@ -298,7 +300,8 @@ type
     msExternalClass,       { Allow external class definitions }
     msPrefixedAttributes,  { Allow attributes, disable proc modifier [] }
     msOmitRTTI,            { treat class section 'published' as 'public' and typeinfo does not work on symbols declared with this switch }
-    msMultiHelpers         { off=only one helper per type, on=all }
+    msMultiHelpers,        { off=only one helper per type, on=all }
+    msImplicitFunctionSpec { implicit function specialization }
     );
   TModeSwitches = Set of TModeSwitch;
 
@@ -1001,7 +1004,7 @@ const
     'Tab'
   );
 
-  SModeSwitchNames : array[TModeSwitch] of string{$ifdef fpc}[20]{$endif} =
+  SModeSwitchNames : array[TModeSwitch] of string =
   ( '', // msNone
     '', // Fpc,
     '', // Objfpc,
@@ -1051,7 +1054,8 @@ const
     'EXTERNALCLASS',
     'PREFIXEDATTRIBUTES',
     'OMITRTTI',
-    'MULTIHELPERS'
+    'MULTIHELPERS',
+    'IMPLICITFUNCTIONSPECIALIZATION'
     );
 
   LetterSwitchNames: array['A'..'Z'] of string=(
@@ -1140,7 +1144,7 @@ const
      msPointer2Procedure,msAutoDeref,msTPProcVar,msInitFinal,msDefaultAnsistring,
      msOut,msDefaultPara,msDuplicateNames,msHintDirective,
      msProperty,msDefaultInline,msExcept,msAdvancedRecords,msTypeHelpers,
-     msPrefixedAttributes,msArrayOperators
+     msPrefixedAttributes,msArrayOperators,msImplicitFunctionSpec
      ];
 
   DelphiUnicodeModeSwitches = delphimodeswitches + [msSystemCodePage,msDefaultUnicodestring];
@@ -2481,8 +2485,25 @@ function TFileResolver.FindIncludeFileName(const AName: string): String;
       end;
   end;
 
+  Function FindInPath(FN : String) : String;
+
+  var
+    I : integer;
+
+  begin
+    Result:='';
+    I:=0;
+    While (Result='') and (I<FIncludePaths.Count) do
+      begin
+      Result:=SearchLowUpCase(FIncludePaths[i]+FN);
+      Inc(I);
+      end;
+    // search in BaseDirectory
+    if (Result='') and (BaseDirectory<>'') then
+      Result:=SearchLowUpCase(BaseDirectory+FN);
+  end;
+
 var
-  i: Integer;
   FN : string;
 
 begin
@@ -2491,23 +2512,34 @@ begin
   FN:=SetDirSeparators(AName);
   If FilenameIsAbsolute(FN) then
     begin
-    // Maybe this should also do a SearchLowUpCase ?
-    if FileExists(FN) then
-      Result := FN;
+    Result := SearchLowUpCase(FN);
+    if (Result='') and (ExtractFileExt(FN)='') then
+      begin
+      Result:=SearchLowUpCase(FN+'.inc');
+      if Result='' then
+        begin
+        Result:=SearchLowUpCase(FN+'.pp');
+        if Result='' then
+          Result:=SearchLowUpCase(FN+'.pas');
+        end;
+      end;
     end
   else
     begin
     // file name is relative
     // search in include path
-    I:=0;
-    While (Result='') and (I<FIncludePaths.Count) do
+    Result:=FindInPath(FN);
+    // No extension, try default extensions
+    if (Result='') and (ExtractFileExt(FN)='') then
       begin
-      Result:=SearchLowUpCase(FIncludePaths[i]+AName);
-      Inc(I);
+      Result:=FindInPath(FN+'.inc');
+      if Result='' then
+        begin
+        Result:=FindInPath(FN+'.pp');
+        if Result='' then
+          Result:=FindInPath(FN+'.pas');
+        end;
       end;
-    // search in BaseDirectory
-    if (Result='') and (BaseDirectory<>'') then
-      Result:=SearchLowUpCase(BaseDirectory+AName);
     end;
 end;
 
@@ -3465,36 +3497,74 @@ begin
 end;
 
 procedure TPascalScanner.HandleModeSwitch(const Param: String);
-
+// $modeswitch param
+// name, name-, name+, name off, name on, name- comment, name on comment
 Var
   MS : TModeSwitch;
   MSN,PM : String;
-  P : Integer;
+  p : Integer;
+  Enable: Boolean;
 
 begin
-  MSN:=Uppercase(Param);
-  P:=Pos(' ',MSN);
-  if P<>0 then
-    begin
-    PM:=Trim(Copy(MSN,P+1,Length(MSN)-P));
-    MSN:=Copy(MSN,1,P-1);
-    end;
+  PM:=Param;
+  p:=1;
+  while (p<=length(PM)) and (PM[p] in ['a'..'z','A'..'Z','_','0'..'9']) do
+    inc(p);
+  MSN:=LeftStr(PM,p-1);
+  Delete(PM,1,p-1);
   MS:=StrToModeSwitch(MSN);
   if (MS=msNone) or not (MS in AllowedModeSwitches) then
     begin
     if po_CheckModeSwitches in Options then
-      Error(nErrInvalidModeSwitch,SErrInvalidModeSwitch,[Param])
+      Error(nErrInvalidModeSwitch,SErrInvalidModeSwitch,[MSN])
     else
-      exit; // ignore
+      DoLog(mtWarning,nErrInvalidModeSwitch,SErrInvalidModeSwitch,[MSN]);
+    exit; // ignore
     end;
-  if (PM='-') or (PM='OFF') then
-    begin
-    if MS in ReadOnlyModeSwitches then
-      Error(nErrInvalidModeSwitch,SErrInvalidModeSwitch,[Param]);
-    CurrentModeSwitches:=CurrentModeSwitches-[MS]
-    end
+  if PM='' then
+    Enable:=true
   else
-    CurrentModeSwitches:=CurrentModeSwitches+[MS];
+    case PM[1] of
+    '+','-':
+      begin
+      Enable:=PM[1]='+';
+      p:=2;
+      if (p<=length(PM)) and not (PM[p] in [' ',#9]) then
+        Error(nErrWrongSwitchToggle,SErrWrongSwitchToggle,[]);
+      end;
+    ' ',#9:
+      begin
+      PM:=TrimLeft(PM);
+      if PM<>'' then
+        begin
+        p:=1;
+        while (p<=length(PM)) and (PM[p] in ['A'..'Z']) do inc(p);
+        if (p<=length(PM)) and not (PM[p] in [' ',#9]) then
+          Error(nErrWrongSwitchToggle,SErrWrongSwitchToggle,[]);
+        PM:=LeftStr(PM,p-1);
+        if PM='ON' then
+          Enable:=true
+        else if PM='OFF' then
+          Enable:=false
+        else
+          Error(nErrWrongSwitchToggle,SErrWrongSwitchToggle,[]);
+        end;
+      end;
+    else
+      Error(nErrWrongSwitchToggle,SErrWrongSwitchToggle,[]);
+    end;
+
+  if MS in CurrentModeSwitches=Enable then
+    exit; // no change
+  if MS in ReadOnlyModeSwitches then
+    begin
+    DoLog(mtWarning,nErrInvalidModeSwitch,SErrInvalidModeSwitch,[MSN]);
+    exit;
+    end;
+  if Enable then
+    CurrentModeSwitches:=CurrentModeSwitches+[MS]
+  else
+    CurrentModeSwitches:=CurrentModeSwitches-[MS];
 end;
 
 procedure TPascalScanner.PushSkipMode;

@@ -1679,9 +1679,9 @@ begin
                  'l' :
                    begin
                      if ispara then
-                       ParaLibraryPath.AddPath(sysrootpath,More,false)
+                       ParaLibraryPath.AddLibraryPath(sysrootpath,More,false)
                      else
-                       LibrarySearchPath.AddPath(sysrootpath,More,true)
+                       LibrarySearchPath.AddLibraryPath(sysrootpath,More,true)
                    end;
                  'L' :
                    begin
@@ -3307,7 +3307,7 @@ begin
 {$if defined(atari) or defined(hasamiga)}
    { enable vlink as default linker on Atari, Amiga, and MorphOS, but not for cross compilers (for now) }
    if (target_info.system in [system_m68k_amiga,system_m68k_atari,
-                              system_powerpc_amiga,system_powerpc_morphos]) and
+                              system_powerpc_amiga]) and
       not LinkerSetExplicitly then
      include(init_settings.globalswitches,cs_link_vlink);
 {$endif}

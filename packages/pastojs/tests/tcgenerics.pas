@@ -24,6 +24,7 @@ type
     Procedure TestGen_ClassEmpty;
     Procedure TestGen_Class_EmptyMethod;
     Procedure TestGen_Class_TList;
+    Procedure TestGen_Class_TCustomList;
     Procedure TestGen_ClassAncestor;
     Procedure TestGen_Class_TypeInfo;
     Procedure TestGen_Class_TypeOverload; // ToDo TBird, TBird<T>, TBird<S,T>
@@ -53,6 +54,8 @@ type
     procedure TestGenProc_Forward;
     procedure TestGenProc_Infer_OverloadForward;
     procedure TestGenProc_TypeInfo;
+    procedure TestGenProc_Infer_Widen;
+    procedure TestGenProc_Infer_PassAsArg;
     // ToDo: FuncName:=
 
     // generic methods
@@ -284,6 +287,62 @@ begin
     LinesToStr([ // $mod.$main
     '$mod.l.SetItems(1, $mod.w);',
     '$mod.w = $mod.l.GetItems(2);',
+    '']));
+end;
+
+procedure TTestGenerics.TestGen_Class_TCustomList;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  'type',
+  '  TObject = class end;',
+  '  TCustomList<T> = class',
+  '  public',
+  '    function PrepareAddingItem: word; virtual;',
+  '  end;',
+  '  TList<T> = class(TCustomList<T>)',
+  '  public',
+  '    function Add: word;',
+  '  end;',
+  '  TWordList = TList<word>;',
+  'function TCustomList<T>.PrepareAddingItem: word;',
+  'begin',
+  'end;',
+  'function TList<T>.Add: word;',
+  'begin',
+  '  Result:=PrepareAddingItem;',
+  //'  Result:=Self.PrepareAddingItem;',
+  //'  with Self do Result:=PrepareAddingItem;',
+  'end;',
+  'var l: TWordList;',
+  'begin',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGen_Class_TCustomList',
+    LinesToStr([ // statements
+    'rtl.createClass($mod, "TObject", null, function () {',
+    '  this.$init = function () {',
+    '  };',
+    '  this.$final = function () {',
+    '  };',
+    '});',
+    'rtl.createClass($mod, "TCustomList$G2", $mod.TObject, function () {',
+    '  this.PrepareAddingItem = function () {',
+    '    var Result = 0;',
+    '    return Result;',
+    '  };',
+    '});',
+    'rtl.createClass($mod, "TList$G1", $mod.TCustomList$G2, function () {',
+    '  this.Add = function () {',
+    '    var Result = 0;',
+    '    Result = this.PrepareAddingItem();',
+    '    return Result;',
+    '  };',
+    '});',
+    'this.l = null;',
+    '']),
+    LinesToStr([ // $mod.$main
     '']));
 end;
 
@@ -1028,15 +1087,9 @@ end;
 procedure TTestGenerics.TestGenProc_TypeInfo;
 begin
   Converter.Options:=Converter.Options-[coNoTypeInfo];
-  StartProgram(false);
+  StartProgram(true,[supTypeInfo]);
   Add([
-  '{$modeswitch externalclass}',
   '{$modeswitch implicitfunctionspecialization}',
-  'type',
-  '  TTypeInfo = class external name ''rtl.tTypeInfo''',
-  '  end;',
-  '  TTypeInfoInteger = class external name ''rtl.tTypeInfoInteger''(TTypeInfo)',
-  '  end;',
   'generic procedure Run<S>(a: S);',
   'var',
   '  p: TTypeInfo;',
@@ -1065,6 +1118,76 @@ begin
     LinesToStr([ // $mod.$main
     '$mod.Run$s0(3);',
     '$mod.Run$s1("foo");',
+    '']));
+end;
+
+procedure TTestGenerics.TestGenProc_Infer_Widen;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  'procedure Run<S>(a: S; b: S);',
+  'begin',
+  'end;',
+  'begin',
+  '  Run(word(1),longint(2));',
+  '  Run(byte(2),smallint(2));',
+  '  Run(longword(3),longint(2));',
+  '  Run(nativeint(4),longint(2));',
+  '  Run(nativeint(5),nativeuint(2));',
+  '  Run(''a'',''foo'');',
+  '  Run(''bar'',''c'');',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGenProc_Infer_Widen',
+    LinesToStr([ // statements
+    'this.Run$s0 = function (a, b) {',
+    '};',
+    'this.Run$s1 = function (a, b) {',
+    '};',
+    'this.Run$s2 = function (a, b) {',
+    '};',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.Run$s0(1, 2);',
+    '$mod.Run$s0(2, 2);',
+    '$mod.Run$s1(3, 2);',
+    '$mod.Run$s1(4, 2);',
+    '$mod.Run$s1(5, 2);',
+    '$mod.Run$s2("a", "foo");',
+    '$mod.Run$s2("bar", "c");',
+    '']));
+end;
+
+procedure TTestGenerics.TestGenProc_Infer_PassAsArg;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  'function Run<T>(a: T): T;',
+  'var b: T;',
+  'begin',
+  '  Run(Run<word>(3));',
+  '  Run(Run(word(4)));',
+  'end;',
+  'begin',
+  '  Run(Run<word>(5));',
+  '  Run(Run(word(6)));',
+  '']);
+  ConvertProgram;
+  CheckSource('TestGenProc_Infer_PassAsArg',
+    LinesToStr([ // statements
+    'this.Run$s0 = function (a) {',
+    '  var Result = 0;',
+    '  var b = 0;',
+    '  $mod.Run$s0($mod.Run$s0(3));',
+    '  $mod.Run$s0($mod.Run$s0(4));',
+    '  return Result;',
+    '};',
+    '']),
+    LinesToStr([ // $mod.$main
+    '$mod.Run$s0($mod.Run$s0(5));',
+    '$mod.Run$s0($mod.Run$s0(6));',
     '']));
 end;
 

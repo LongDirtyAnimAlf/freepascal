@@ -412,6 +412,10 @@ const
     ,btQWord,btInt64,btComp
     {$endif}];
   btAllIntegerNoQWord = btAllInteger{$ifdef HasInt64}-[btQWord]{$endif};
+  btAllSignedInteger = [btShortInt,btSmallInt,btIntSingle,btLongint,btIntDouble
+    {$ifdef HasInt64}
+    ,btInt64,btComp
+    {$endif}];
   btAllChars = [btChar,{$ifdef FPC_HAS_CPSTRING}btAnsiChar,{$endif}btWideChar];
   btAllStrings = [btString,
     {$ifdef FPC_HAS_CPSTRING}btAnsiString,btShortString,btRawByteString,{$endif}
@@ -1401,6 +1405,7 @@ type
     Found: TPasElement;
     ElScope: TPasScope; // Where Found was found
     StartScope: TPasScope; // where the search started
+    SkipGenerics: boolean;
   end;
   PPRFindData = ^TPRFindData;
 
@@ -1703,6 +1708,9 @@ type
     procedure ComputeArgumentAndExpr(
       Arg: TPasArgument; out ArgResolved: TPasResolverResult;
       Expr: TPasExpr; out ExprResolved: TPasResolverResult;
+      SetReferenceFlags: boolean);
+    procedure ComputeArgumentExpr(const ArgResolved: TPasResolverResult;
+      Access: TArgumentAccess; Expr: TPasExpr; out ExprResolved: TPasResolverResult;
       SetReferenceFlags: boolean);
     procedure ComputeArrayParams(Params: TParamsExpr;
       out ResolvedEl: TPasResolverResult; Flags: TPasResolverComputeFlags;
@@ -2043,9 +2051,9 @@ type
     function FindElement(const aName: String): TPasElement; override;  // used by TPasParser
     function FindElementFor(const aName: String; AParent: TPasElement; TypeParamCount: integer): TPasElement; override; // used by TPasParser
     function FindElementWithoutParams(const AName: String; ErrorPosEl: TPasElement;
-      NoProcsWithArgs: boolean): TPasElement;
+      NoProcsWithArgs, NoGenerics: boolean): TPasElement;
     function FindElementWithoutParams(const AName: String; out Data: TPRFindData;
-      ErrorPosEl: TPasElement; NoProcsWithArgs: boolean): TPasElement;
+      ErrorPosEl: TPasElement; NoProcsWithArgs, NoGenerics: boolean): TPasElement;
     function FindFirstEl(const AName: String; out Data: TPRFindData;
       ErrorPosEl: TPasElement): TPasElement;
     procedure FindLongestUnitName(var El: TPasElement; Expr: TPasExpr);
@@ -2195,6 +2203,9 @@ type
       Params: TParamsExpr; RaiseOnError: boolean; EmitHints: boolean = false): integer;
     function CheckParamCompatibility(Expr: TPasExpr; Param: TPasArgument;
       ParamNo: integer; RaiseOnError: boolean; SetReferenceFlags: boolean = false): integer;
+    function CheckParamResCompatibility(Expr: TPasExpr; const ExprResolved,
+      ParamResolved: TPasResolverResult; ParamNo: integer; RaiseOnError: boolean;
+      SetReferenceFlags: boolean): integer;
     function CheckAssignCompatibilityUserType(
       const LHS, RHS: TPasResolverResult; ErrorEl: TPasElement;
       RaiseOnIncompatible: boolean): integer;
@@ -2337,6 +2348,7 @@ type
     function GetSmallestIntegerBaseType(MinVal, MaxVal: TMaxPrecInt): TResolverBaseType; // returns BaseTypeExtended if too big
     function GetCombinedChar(const Char1, Char2: TPasResolverResult; ErrorEl: TPasElement): TResolverBaseType; virtual;
     function GetCombinedString(const Str1, Str2: TPasResolverResult; ErrorEl: TPasElement): TResolverBaseType; virtual;
+    function GetCombinedBaseType(const A, B: TPasResolverResult; ErrorEl: TPasElement): TResolverBaseType; virtual;
     function IsElementSkipped(El: TPasElement): boolean; virtual;
     function FindLocalBuiltInSymbol(El: TPasElement): TPasElement; virtual;
     function GetLastSection: TPasSection;
@@ -4752,12 +4764,31 @@ procedure TPasResolver.OnFindFirst_PreferNoParams(El: TPasElement; ElScope,
 var
   Data: PPRFindData absolute FindFirstElementData;
   ok: Boolean;
+  Proc: TPasProcedure;
+  Templates: TFPList;
 begin
   ok:=true;
-  if (El is TPasProcedure)
-      and ProcNeedsParams(TPasProcedure(El).ProcType) then
-    // found a proc, but it needs parameters -> remember the first and continue
-    ok:=false;
+  if (El is TPasProcedure) then
+    begin
+    Proc:=TPasProcedure(El);
+    if Data^.SkipGenerics then
+      begin
+      Templates:=GetProcTemplateTypes(Proc);
+      if (Templates<>nil) and (Templates.Count>0) then
+        ok:=false;
+      end;
+    if ok and ProcNeedsParams(Proc.ProcType) then
+      // found a proc, but it needs parameters -> remember the first and continue
+      ok:=false;
+    end
+  else if Data^.SkipGenerics then
+    begin
+    if El is TPasGenericType then
+      begin
+      if GetTypeParameterCount(TPasGenericType(El))>0 then
+        ok:=false;
+      end;
+    end;
   if ok or (Data^.Found=nil) then
     begin
     Data^.Found:=El;
@@ -8374,7 +8405,7 @@ var
       if IsDefaultAncestor(aClass,DefAncestorName) then exit;
       RaiseXExpectedButYFound(20190106132328,'top level '+DefAncestorName,'nested '+aClass.Name,aClass);
       end;
-    CurEl:=FindElementWithoutParams(DefAncestorName,aClass,false);
+    CurEl:=FindElementWithoutParams(DefAncestorName,aClass,false,true);
     if not (CurEl is TPasType) then
       RaiseXExpectedButYFound(20180321150128,Expected,GetElementTypeName(CurEl),aClass);
     DirectAncestor:=TPasType(CurEl);
@@ -8935,7 +8966,7 @@ begin
       begin
       // attribute without params
       // -> resolve call 'Create'
-      DeclEl:=FindElementWithoutParams('Create',Data,NameExpr,false);
+      DeclEl:=FindElementWithoutParams('Create',Data,NameExpr,false,true);
       if DeclEl=nil then
         RaiseIdentifierNotFound(20190221144516,'Create',NameExpr);
       // check call is constructor
@@ -9985,7 +10016,7 @@ begin
       RaiseXExpectedButYFound(20190916160829,'generic type',GetElementTypeName(DeclEl),El);
     end
   else
-    DeclEl:=FindElementWithoutParams(aName,FindData,El,false);
+    DeclEl:=FindElementWithoutParams(aName,FindData,El,false,false);
 
   if DeclEl.ClassType=TPasUsesUnit then
     begin
@@ -10969,7 +11000,7 @@ begin
   else
     RaiseNotYetImplemented(20190131154557,NameExpr);
 
-  DeclEl:=FindElementWithoutParams(ArrayName,FindData,NameExpr,true);
+  DeclEl:=FindElementWithoutParams(ArrayName,FindData,NameExpr,true,true);
   Ref:=CreateReference(DeclEl,NameExpr,Access,@FindData);
   CheckFoundElement(FindData,Ref);
   if DeclEl is TPasProcedure then
@@ -11445,7 +11476,8 @@ begin
       and ((C=TPrimitiveExpr)
         or (C=TNilExpr)
         or (C=TBoolConstExpr)
-        or (C=TProcedureExpr)) then
+        or (C=TProcedureExpr))
+        or (C=TInlineSpecializeExpr) then
     // ok
   else if C=TUnaryExpr then
     AccessExpr(TUnaryExpr(Expr).Operand,Access)
@@ -13424,12 +13456,7 @@ end;
 procedure TPasResolver.ComputeArgumentAndExpr(Arg: TPasArgument; out
   ArgResolved: TPasResolverResult; Expr: TPasExpr; out
   ExprResolved: TPasResolverResult; SetReferenceFlags: boolean);
-var
-  NeedVar: Boolean;
-  RHSFlags: TPasResolverComputeFlags;
 begin
-  NeedVar:=Arg.Access in [argVar, argOut];
-
   ComputeElement(Arg,ArgResolved,[]);
   {$IFDEF VerbosePasResolver}
   writeln('TPasResolver.ComputeArgumentAndExpr Arg=',GetTreeDbg(Arg,2),' ArgResolved=',GetResolverResultDbg(ArgResolved));
@@ -13437,18 +13464,30 @@ begin
   if (ArgResolved.LoTypeEl=nil) and (Arg.ArgType<>nil) then
     RaiseInternalError(20160922163628,'TypeEl=nil for '+GetTreeDbg(Arg));
 
+  ComputeArgumentExpr(ArgResolved,Arg.Access,Expr,ExprResolved,SetReferenceFlags);
+end;
+
+procedure TPasResolver.ComputeArgumentExpr(
+  const ArgResolved: TPasResolverResult; Access: TArgumentAccess;
+  Expr: TPasExpr; out ExprResolved: TPasResolverResult;
+  SetReferenceFlags: boolean);
+var
+  NeedVar: Boolean;
+  RHSFlags: TPasResolverComputeFlags;
+begin
   RHSFlags:=[];
+  NeedVar:=Access in [argVar, argOut];
   if NeedVar then
     Include(RHSFlags,rcNoImplicitProc)
   else if IsProcedureType(ArgResolved,true)
       or (ArgResolved.BaseType=btPointer)
-      or (Arg.ArgType=nil) then
+      or ((ArgResolved.LoTypeEl=nil) and (ArgResolved.IdentEl is TPasArgument)) then
     Include(RHSFlags,rcNoImplicitProcType);
   if SetReferenceFlags then
     Include(RHSFlags,rcSetReferenceFlags);
   ComputeElement(Expr,ExprResolved,RHSFlags);
   {$IFDEF VerbosePasResolver}
-  writeln('TPasResolver.ComputeArgumentAndExpr Expr=',GetTreeDbg(Expr,2),' ExprResolved=',GetResolverResultDbg(ExprResolved),' RHSFlags=',dbgs(RHSFlags));
+  writeln('TPasResolver.ComputeArgumentExpr Expr=',GetTreeDbg(Expr,2),' ExprResolved=',GetResolverResultDbg(ExprResolved),' RHSFlags=',dbgs(RHSFlags));
   {$ENDIF}
 end;
 
@@ -15549,6 +15588,8 @@ type
     OldInferType, ParamElType: TPasType;
     ResolveAlias: TPRResolveAlias;
     Arr: TPasArrayType;
+    Param1Resolved, Param2Resolved: TPasResolverResult;
+    NewBaseType, BaseType1, BaseType2: TResolverBaseType;
   begin
     if (ArgType=nil) or (ParamLoType=nil) then exit;
     C:=ArgType.ClassType;
@@ -15613,7 +15654,64 @@ type
           // second can be widened to fit
           exit;
           end;
-        // find a type compatible to both
+
+        // None is var/out -> find a type compatible to both
+        // widen type to some common base types to avoid high number of specialization
+        ComputeElement(ParamHiType,Param1Resolved,[],ErrorPos);
+        ComputeElement(InferenceParams[i].InferType,Param2Resolved,[],ErrorPos);
+        NewBaseType:=btNone;
+        BaseType1:=Param1Resolved.BaseType;
+        BaseType2:=Param2Resolved.BaseType;
+        if BaseType1 in btAllBooleans then
+          begin
+          if BaseType2 in btAllBooleans then
+            if BaseTypes[btBoolean]<>nil then
+              NewBaseType:=btBoolean
+            else
+              NewBaseType:=GetCombinedBoolean(BaseType1,BaseType2,ErrorPos);
+          end
+        else if BaseType1 in btAllInteger then
+          begin
+          NewBaseType:=TResolverBaseType(Max(ord(BaseType1),ord(BaseType2)));
+          if (BaseTypes[btLongint]<>nil)
+              and (NewBaseType in [btByte,btShortInt,btWord,btSmallInt,btIntSingle,btUIntSingle,btLongint])
+              and (BaseType1<>btLongWord) and (BaseType2<>btLongWord) then
+            NewBaseType:=btLongint
+          else if (BaseTypes[btInt64]<>nil)
+              and (NewBaseType<=btInt64)
+              and (BaseType1<>btQWord) and (BaseType2<>btQWord) then
+            NewBaseType:=btInt64
+          else if (BaseTypes[btIntDouble]<>nil)
+              and (NewBaseType<=btIntDouble) then
+            NewBaseType:=btIntDouble
+          else if (BaseTypes[btQWord]<>nil)
+              and not (NewBaseType in btAllSignedInteger) then
+            NewBaseType:=btQWord
+          else
+            NewBaseType:=GetCombinedInt(Param1Resolved,Param2Resolved,ErrorPos);
+          end
+        else if Param1Resolved.BaseType in btAllStringAndChars then
+          begin
+          if Param2Resolved.BaseType in btAllStringAndChars then
+            if BaseTypes[btUnicodeString]<>nil then
+              NewBaseType:=btUnicodeString
+            else
+              NewBaseType:=GetCombinedString(Param1Resolved,Param2Resolved,ErrorPos);
+          end
+        else if Param1Resolved.BaseType in btAllFloats then
+          begin
+          if BaseTypes[btDouble]<>nil then
+            NewBaseType:=btDouble;
+          end;
+        if NewBaseType<>btNone then
+          begin
+          InferenceParams[i].InferType.Release{$IFDEF CheckPasTreeRefCount}(RefIdInferenceParamsExpr){$ENDIF};
+          InferenceParams[i].InferType:=BaseTypes[NewBaseType];
+          InferenceParams[i].IsVarOut:=NeedVar;
+          BaseTypes[NewBaseType].AddRef{$IFDEF CheckPasTreeRefCount}(RefIdInferenceParamsExpr){$ENDIF};
+          exit;
+          end;
+
         // ToDo
         RaiseInferTypeMismatch(20191006220406,ArgType,ErrorPos);
         end;
@@ -20477,7 +20575,7 @@ begin
         RaiseInternalError(20190801104033); // caller forgot to handle "With"
       end
     else
-      NextEl:=FindElementWithoutParams(CurName,ErrorEl,true);
+      NextEl:=FindElementWithoutParams(CurName,ErrorEl,true,true);
     {$IFDEF VerbosePasResolver}
     //if RightPath<>'' then
     //  writeln('TPasResolver.FindElement searching scope "',CurName,'" RightPath="',RightPath,'" ... NextEl=',GetObjName(NextEl));
@@ -20552,11 +20650,11 @@ begin
 end;
 
 function TPasResolver.FindElementWithoutParams(const AName: String;
-  ErrorPosEl: TPasElement; NoProcsWithArgs: boolean): TPasElement;
+  ErrorPosEl: TPasElement; NoProcsWithArgs, NoGenerics: boolean): TPasElement;
 var
   Data: TPRFindData;
 begin
-  Result:=FindElementWithoutParams(AName,Data,ErrorPosEl,NoProcsWithArgs);
+  Result:=FindElementWithoutParams(AName,Data,ErrorPosEl,NoProcsWithArgs,NoGenerics);
   if Data.Found=nil then exit; // forward type: class-of or ^
   CheckFoundElement(Data,nil);
   if (Data.StartScope<>nil) and (Data.StartScope.ClassType=ScopeClass_WithExpr)
@@ -20565,8 +20663,8 @@ begin
 end;
 
 function TPasResolver.FindElementWithoutParams(const AName: String; out
-  Data: TPRFindData; ErrorPosEl: TPasElement; NoProcsWithArgs: boolean
-  ): TPasElement;
+  Data: TPRFindData; ErrorPosEl: TPasElement; NoProcsWithArgs,
+  NoGenerics: boolean): TPasElement;
 var
   Abort: boolean;
 begin
@@ -20575,6 +20673,7 @@ begin
   Abort:=false;
   Data:=Default(TPRFindData);
   Data.ErrorPosEl:=ErrorPosEl;
+  Data.SkipGenerics:=NoGenerics;
   IterateElements(AName,@OnFindFirst_PreferNoParams,@Data,Abort);
   Result:=Data.Found;
   if Result=nil then
@@ -22722,7 +22821,7 @@ var
   ProcArgs: TFPList;
   i, ParamCnt, ParamCompatibility: Integer;
   Param, Value: TPasExpr;
-  ParamResolved: TPasResolverResult;
+  ParamResolved, ArgResolved: TPasResolverResult;
   Flags: TPasResolverComputeFlags;
 begin
   Result:=cExact;
@@ -22734,6 +22833,7 @@ begin
 
   // check args
   ParamCnt:=length(Params.Params);
+  ArgResolved.BaseType:=btNone;;
   i:=0;
   while i<ParamCnt do
     begin
@@ -22752,18 +22852,32 @@ begin
       begin
       if ptmVarargs in ProcType.Modifiers then
         begin
-        if SetReferenceFlags then
-          Flags:=[rcNoImplicitProcType,rcSetReferenceFlags]
-        else
-          Flags:=[rcNoImplicitProcType];
-        ComputeElement(Param,ParamResolved,Flags,Param);
-        if not (rrfReadable in ParamResolved.Flags) then
+        if ProcType.VarArgsType<>nil then
           begin
-          if RaiseOnError then
-            RaiseVarExpected(20180712001415,Param,ParamResolved.IdentEl);
-          exit(cIncompatible);
+          if ArgResolved.BaseType=btNone then
+            ComputeElement(ProcType.VarArgsType,ArgResolved,[rcType]);
+          ComputeArgumentExpr(ArgResolved,argConst,
+                                 Param,ParamResolved,SetReferenceFlags);
+          ParamCompatibility:=CheckParamResCompatibility(Param,ParamResolved,
+                                   ArgResolved,i,RaiseOnError,SetReferenceFlags);
+          if ParamCompatibility=cIncompatible then
+            exit(cIncompatible);
+          end
+        else
+          begin
+          if SetReferenceFlags then
+            Flags:=[rcNoImplicitProcType,rcSetReferenceFlags]
+          else
+            Flags:=[rcNoImplicitProcType];
+          ComputeElement(Param,ParamResolved,Flags,Param);
+          if not (rrfReadable in ParamResolved.Flags) then
+            begin
+            if RaiseOnError then
+              RaiseVarExpected(20180712001415,Param,ParamResolved.IdentEl);
+            exit(cIncompatible);
+            end;
+          ParamCompatibility:=cExact;
           end;
-        ParamCompatibility:=cExact;
         end
       else
         begin
@@ -25071,7 +25185,7 @@ function TPasResolver.CheckParamCompatibility(Expr: TPasExpr;
   SetReferenceFlags: boolean): integer;
 var
   ExprResolved, ParamResolved: TPasResolverResult;
-  NeedVar, UseAssignError: Boolean;
+  NeedVar: Boolean;
 begin
   Result:=cIncompatible;
 
@@ -25132,6 +25246,16 @@ begin
     exit(cIncompatible);
     end;
 
+  Result:=CheckParamResCompatibility(Expr,ExprResolved,ParamResolved,ParamNo,
+                                     RaiseOnError,SetReferenceFlags);
+end;
+
+function TPasResolver.CheckParamResCompatibility(Expr: TPasExpr;
+  const ExprResolved, ParamResolved: TPasResolverResult; ParamNo: integer;
+  RaiseOnError: boolean; SetReferenceFlags: boolean): integer;
+var
+  UseAssignError: Boolean;
+begin
   UseAssignError:=false;
   if RaiseOnError and (ExprResolved.BaseType in [btArrayLit,btArrayOrSet]) then
     // e.g. Call([1,2]) -> on mismatch jump to the wrong param expression
@@ -28367,7 +28491,10 @@ begin
     if BaseTypes[Result]<>nil then exit;
     end;
   {$endif}
-  RaiseRangeCheck(20170420100336,ErrorEl);
+  if ErrorEl<>nil then
+    RaiseRangeCheck(20170420100336,ErrorEl)
+  else
+    Result:=btNone;
 end;
 
 function TPasResolver.GetSmallestIntegerBaseType(MinVal, MaxVal: TMaxPrecInt
@@ -28514,6 +28641,34 @@ begin
     Result:=btChar
   else if Result=BaseTypeString then
     Result:=btString;
+end;
+
+function TPasResolver.GetCombinedBaseType(const A, B: TPasResolverResult;
+  ErrorEl: TPasElement): TResolverBaseType;
+begin
+  Result:=btNone;
+  if A.BaseType in btAllBooleans then
+    begin
+    if B.BaseType in btAllBooleans then
+      Result:=GetCombinedBoolean(A.BaseType,B.BaseType,ErrorEl);
+    end
+  else if A.BaseType in btAllInteger then
+    begin
+    if B.BaseType in btAllInteger then
+      Result:=GetCombinedInt(A,B,ErrorEl);
+    end
+  else if A.BaseType in btAllChars then
+    begin
+    if B.BaseType in btAllChars then
+      Result:=GetCombinedChar(A,B,ErrorEl)
+    else if B.BaseType in btAllStrings then
+      Result:=GetCombinedString(A,B,ErrorEl);
+    end
+  else if A.BaseType in btAllStrings then
+    begin
+    if B.BaseType in btAllStringAndChars then
+      Result:=GetCombinedString(A,B,ErrorEl);
+    end;
 end;
 
 function TPasResolver.IsElementSkipped(El: TPasElement): boolean;

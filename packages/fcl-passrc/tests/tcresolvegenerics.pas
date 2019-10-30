@@ -58,9 +58,10 @@ type
     // generic class
     procedure TestGen_Class;
     procedure TestGen_ClassDelphi;
-    procedure TestGen_ClassDelphi_TypeOverload; // ToDo
+    procedure TestGen_ClassDelphi_TypeOverload;
     procedure TestGen_ClassObjFPC;
     procedure TestGen_ClassObjFPC_OverloadFail;
+    procedure TestGen_ClassObjFPC_OverloadOtherUnit;
     procedure TestGen_ClassForward;
     procedure TestGen_ClassForwardConstraints;
     procedure TestGen_ClassForwardConstraintNameMismatch;
@@ -68,7 +69,7 @@ type
     procedure TestGen_ClassForwardConstraintTypeMismatch;
     procedure TestGen_ClassForward_Circle;
     procedure TestGen_Class_RedeclareInUnitImplFail;
-    procedure TestGen_Class_AnotherInUnitImpl;
+    procedure TestGen_Class_TypeOverloadInUnitImpl;
     procedure TestGen_Class_MethodObjFPC;
     procedure TestGen_Class_MethodOverride;
     procedure TestGen_Class_MethodDelphi;
@@ -150,12 +151,14 @@ type
     procedure TestGenProc_Infer_Overload;
     procedure TestGenProc_Infer_OverloadForward;
     procedure TestGenProc_Infer_Var_Overload;
-    //procedure TestGenProc_Infer_Widen;
+    procedure TestGenProc_Infer_Widen;
     procedure TestGenProc_Infer_DefaultValue;
     procedure TestGenProc_Infer_DefaultValueMismatch;
     procedure TestGenProc_Infer_ProcT;
     procedure TestGenProc_Infer_Mismatch;
     procedure TestGenProc_Infer_ArrayOfT;
+    procedure TestGenProc_Infer_PassAsArgDelphi;
+    procedure TestGenProc_Infer_PassAsArgObjFPC;
     // ToDo procedure TestGenProc_Infer_ProcType;
 
     // generic methods
@@ -761,21 +764,19 @@ end;
 
 procedure TTestResolveGenerics.TestGen_ClassDelphi_TypeOverload;
 begin
-  exit;
-
   StartProgram(false);
   Add([
   '{$mode delphi}',
   'type',
   '  TObject = class end;',
-  '  TBird = word;',
-  '  TBird<T> = class',
+  '  {#a}TBird = word;',
+  '  {#b}TBird<T> = class',
   '    v: T;',
   '  end;',
-  '  TEagle = TBird<word>;',
+  '  {=b}TEagle = TBird<word>;',
   'var',
-  '  b: TBird<word>;',
-  '  w: TBird;',
+  '  b: {@b}TBird<word>;',
+  '  {=a}w: TBird;',
   'begin',
   '  b.v:=w;',
   '']);
@@ -814,6 +815,41 @@ begin
   'begin',
   '']);
   CheckResolverException('Duplicate identifier "TBird" at afile.pp(5,8)',nDuplicateIdentifier);
+end;
+
+procedure TTestResolveGenerics.TestGen_ClassObjFPC_OverloadOtherUnit;
+begin
+  AddModuleWithIntfImplSrc('unit1.pas',
+    LinesToStr([
+    'type',
+    '  TBird = class b1: word; end;',
+    '  generic TAnt<T> = class a1: T; end;',
+    '']),
+    LinesToStr([
+    '']));
+  AddModuleWithIntfImplSrc('unit2.pas',
+    LinesToStr([
+    'type',
+    '  generic TBird<T> = class b2:T; end;',
+    '  TAnt = class a2:word; end;',
+    '']),
+    LinesToStr([
+    '']));
+  StartProgram(true,[supTObject]);
+  Add([
+  'uses unit1, unit2;',
+  'var',
+  '  b1: TBird;',
+  '  b2: specialize TBird<word>;',
+  '  a1: specialize TAnt<word>;',
+  '  a2: TAnt;',
+  'begin',
+  '  b1.b1:=1;',
+  '  b2.b2:=2;',
+  '  a1.a1:=3;',
+  '  a2.a2:=4;',
+  '']);
+  ParseProgram;
 end;
 
 procedure TTestResolveGenerics.TestGen_ClassForward;
@@ -970,7 +1006,7 @@ begin
     nDuplicateIdentifier);
 end;
 
-procedure TTestResolveGenerics.TestGen_Class_AnotherInUnitImpl;
+procedure TTestResolveGenerics.TestGen_Class_TypeOverloadInUnitImpl;
 begin
   StartUnit(false);
   Add([
@@ -995,8 +1031,16 @@ begin
   '  generic TBird<{#Templ}T> = class',
   '    function Fly(p:T): T; virtual; abstract;',
   '    function Run(p:T): T;',
+  '    procedure Jump(p:T);',
+  '    class procedure Go(p:T);',
   '  end;',
   'function TBird.Run(p:T): T;',
+  'begin',
+  'end;',
+  'generic procedure TBird<T>.Jump(p:T);',
+  'begin',
+  'end;',
+  'generic class procedure TBird<T>.Go(p:T);',
   'begin',
   'end;',
   'var',
@@ -2238,6 +2282,23 @@ begin
   ParseProgram;
 end;
 
+procedure TTestResolveGenerics.TestGenProc_Infer_Widen;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  'procedure {#A}Run<S>(a: S; b: S);',
+  'begin',
+  'end;',
+  'begin',
+  '  {@A}Run(word(1),longint(2));',
+  '  {@A}Run(int64(1),longint(2));',
+  '  {@A}Run(boolean(false),wordbool(2));',
+  '  {@A}Run(''a'',''foo'');',
+  '']);
+  ParseProgram;
+end;
+
 procedure TTestResolveGenerics.TestGenProc_Infer_DefaultValue;
 begin
   StartProgram(false);
@@ -2321,6 +2382,43 @@ begin
   'var Arr: array of byte;',
   'begin',
   '  Run(Arr);',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGenProc_Infer_PassAsArgDelphi;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  'function Run<T>(a: T): T;',
+  'var b: T;',
+  'begin',
+  '  Run(Run<word>(3));',
+  '  Run(Run(4));',
+  'end;',
+  'begin',
+  '  Run(Run<word>(5));',
+  '  Run(Run(6));',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGenProc_Infer_PassAsArgObjFPC;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  '{$ModeSwitch implicitfunctionspecialization}',
+  'generic function Run<T>(a: T): T;',
+  'var b: T;',
+  'begin',
+  '  Run(specialize Run<word>(3));',
+  '  Run(Run(4));',
+  'end;',
+  'begin',
+  '  Run(specialize Run<word>(5));',
+  '  Run(Run(6));',
   '']);
   ParseProgram;
 end;

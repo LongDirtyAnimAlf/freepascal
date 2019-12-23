@@ -218,7 +218,7 @@ implementation
 
     uses
       cutils,
-      verbose,systems,sysutils,
+      verbose,systems,sysutils,ppu,
       defcmp,defutil,procinfo,
       aasmdata,aasmtai,
       cgbase,
@@ -518,7 +518,11 @@ implementation
     procedure trealconstnode.printnodedata(var t: text);
       begin
         inherited printnodedata(t);
-        writeln(t,printnodeindention,'value = ',value_real);
+        write(t,printnodeindention,'value = ',value_real);
+        if is_currency(resultdef) then
+          writeln(', value_currency = ',value_currency)
+        else
+          writeln;
       end;
 
     function trealconstnode.emit_data(tcb:ttai_typedconstbuilder):sizeint;
@@ -619,7 +623,7 @@ implementation
         { only do range checking when explicitly asked for it
           and if the type can be range checked, see tests/tbs/tb0539.pp }
         if (resultdef.typ in [orddef,enumdef]) then
-          adaptrange(resultdef,value,nf_internal in flags, not rangecheck)
+          adaptrange(resultdef,value,nf_internal in flags,not rangecheck,rangecheck)
       end;
 
     function tordconstnode.pass_1 : tnode;
@@ -1235,7 +1239,7 @@ implementation
         inherited ppuload(t,ppufile);
         ppufile.getderef(typedefderef);
         new(value_set);
-        ppufile.getnormalset(value_set^);
+        ppufile.getset(tppuset32(value_set^));
       end;
 
 
@@ -1243,7 +1247,7 @@ implementation
       begin
         inherited ppuwrite(ppufile);
         ppufile.putderef(typedefderef);
-        ppufile.putnormalset(value_set^);
+        ppufile.putset(tppuset32(value_set^));
       end;
 
 

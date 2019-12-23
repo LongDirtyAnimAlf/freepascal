@@ -5,7 +5,13 @@ unit pas2jsresources;
 interface
 
 uses
-  Classes, SysUtils, pas2jsfs, jsTree;
+  Classes, SysUtils,
+  {$IFDEF pas2js}
+  web,
+  {$ELSE}
+  base64,
+  {$ENDIF}
+  pas2jsfs, jsTree;
 
 Type
   TResourceScopeMode = (rmProgram,rmUnit);
@@ -59,17 +65,19 @@ Type
   Public
     Procedure HandleResource (aFileName : string; Options : TStrings); override;
     Class Function OutputMode : TResourceOutputMode; override;
+    function GetResourceCount: Integer; override;
+    function GetAsString: String; override;
   end;
-implementation
 
-{$IFNDEF PAS2JS}
-uses base64;
+implementation
 
 { TNoResources }
 
 procedure TNoResources.HandleResource(aFileName: string; Options: TStrings);
 begin
   // Do nothing
+  if aFileName='' then ;
+  if Options=nil then ;
 end;
 
 
@@ -78,7 +86,15 @@ begin
   result:=romNone;
 end;
 
-{$ENDIF}
+function TNoResources.GetResourceCount: Integer;
+begin
+  Result:=0;
+end;
+
+function TNoResources.GetAsString: String;
+begin
+  Result:='';
+end;
 
 { TPas2jsResourceHandler }
 
@@ -134,7 +150,11 @@ Var
 
 begin
   F:=LoadFile(aFileName);
+  {$IFDEF pas2js}
+  Result:=window.atob(F.Source);
+  {$ELSE}
   Result:=EncodeStringBase64(F.Source);
+  {$ENDIF}
   // Do not release, FS will release all files
 end;
 
@@ -157,6 +177,7 @@ end;
 function TPas2jsResourceHandler.WriteJS(const aUnitName: String; aModule: TJSElement): TJSElement;
 begin
   Result:=aModule;
+  if aUnitName='' then ;
 end;
 
 

@@ -952,7 +952,14 @@ begin
         if not ParseMacVersionMin(MacOSXVersionMin,iPhoneOSVersionMin,'MAC_OS_X_VERSION_MIN_REQUIRED',envstr,false) then
           Message1(option_invalid_macosx_deployment_target,envstr)
         else
-          exit;
+          begin
+{$ifdef llvm}
+             { We only support libunwind as part of libsystem, which happened in Mac OS X 10.6 }
+            if CompareVersionStrings(MacOSXVersionMin,'10.6')<=0 then
+              Message1(option_invalid_macosx_deployment_target,envstr);
+{$endif}
+            exit;
+          end;
     end
   else
     begin
@@ -970,30 +977,16 @@ begin
         set_system_compvar('MAC_OS_X_VERSION_MIN_REQUIRED','1030');
         MacOSXVersionMin:='10.3';
       end;
-    system_powerpc64_darwin,
-    system_i386_darwin:
+    system_powerpc64_darwin:
       begin
-{$ifdef llvm}
-        { We only support libunwind as part of libsystem }
-        set_system_compvar('MAC_OS_X_VERSION_MIN_REQUIRED','1060');
-        MacOSXVersionMin:='10.6';
-{$else llvm}
         set_system_compvar('MAC_OS_X_VERSION_MIN_REQUIRED','1040');
         MacOSXVersionMin:='10.4';
-{$endif llvm}
       end;
+    system_i386_darwin,
     system_x86_64_darwin:
       begin
-{$ifdef llvm}
-        { We only support libunwind as part of libsystem }
-        set_system_compvar('MAC_OS_X_VERSION_MIN_REQUIRED','1060');
-        MacOSXVersionMin:='10.6';
-{$else llvm}
-        { actually already works on 10.4, but it's unlikely any 10.4 system
-          with an x86-64 is still in use, so don't default to it }
-        set_system_compvar('MAC_OS_X_VERSION_MIN_REQUIRED','1050');
-        MacOSXVersionMin:='10.5';
-{$endif llvm}
+        set_system_compvar('MAC_OS_X_VERSION_MIN_REQUIRED','1080');
+        MacOSXVersionMin:='10.8';
       end;
     system_arm_darwin,
     system_i386_iphonesim:
@@ -1101,7 +1094,8 @@ begin
                 begin
                   case more[j] of
                     '5' :
-                      if target_info.system in systems_all_windows+systems_nativent-[system_i8086_win16] then
+                      if (target_info.system in systems_all_windows+systems_nativent-[system_i8086_win16])
+                         or (target_info.cpu in [cpu_mipseb, cpu_mipsel]) then
                         begin
                           if UnsetBool(More, j, opt, false) then
                             exclude(init_settings.globalswitches,cs_asm_pre_binutils_2_25)
@@ -3728,7 +3722,7 @@ procedure read_arguments(cmd:TCmdStr);
       {$endif i8086 or avr}
       { abs(long) is handled internally on all CPUs }
         def_system_macro('FPC_HAS_INTERNAL_ABS_LONG');
-      {$if defined(i8086) or defined(i386) or defined(x86_64) or defined(powerpc64) or defined(cpuaarch64)}
+      {$if defined(i8086) or defined(i386) or defined(x86_64) or defined(powerpc64) or defined(aarch64)}
         def_system_macro('FPC_HAS_INTERNAL_ABS_INT64');
       {$endif i8086 or i386 or x86_64 or powerpc64 or aarch64}
 
@@ -4379,6 +4373,8 @@ begin
             init_settings.fputype:=fpu_none;
           end;
       end;
+    else
+      ;
   end;
 {$endif m68k}
 

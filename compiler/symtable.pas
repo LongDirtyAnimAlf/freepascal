@@ -334,7 +334,8 @@ interface
     procedure write_system_parameter_lists(const name:string);
 
 {*** Search ***}
-    procedure addsymref(sym:tsym);
+    procedure addsymref(sym:tsym);inline;
+    procedure addsymref(sym:tsym;def:tdef);
     function  is_owned_by(nesteddef,ownerdef:tdef):boolean;
     function  sym_is_owned_by(childsym:tsym;symtable:tsymtable):boolean;
     function  defs_belong_to_same_generic(def1,def2:tdef):boolean;
@@ -474,7 +475,7 @@ implementation
 
     uses
       { global }
-      verbose,globals,
+      verbose,globals,systems,
       { symtable }
       symutil,defutil,defcmp,objcdef,
       { module }
@@ -482,7 +483,7 @@ implementation
       { codegen }
       procinfo,
       { ppu }
-      entfile,
+      entfile,ppu,
       { parser }
       scanner
       ;
@@ -525,7 +526,7 @@ implementation
         { load the table's flags }
         if ppufile.readentry<>ibsymtableoptions then
           Message(unit_f_ppu_read_error);
-        ppufile.getsmallset(tableoptions);
+        ppufile.getset(tppuset1(tableoptions));
 
         { load definitions }
         loaddefs(ppufile);
@@ -544,7 +545,7 @@ implementation
            needs_init_final;
 
          { write the table's flags }
-         ppufile.putsmallset(tableoptions);
+         ppufile.putset(tppuset1(tableoptions));
          ppufile.writeentry(ibsymtableoptions);
 
          { write definitions }
@@ -1246,7 +1247,7 @@ implementation
         recordalignmin:=shortint(ppufile.getbyte);
         if (usefieldalignment=C_alignment) then
           fieldalignment:=shortint(ppufile.getbyte);
-        ppufile.getsmallset(has_fields_with_mop);
+        ppufile.getset(tppuset1(has_fields_with_mop));
         inherited ppuload(ppufile);
       end;
 
@@ -1267,7 +1268,7 @@ implementation
          { it's not really a "symtableoption", but loading this from the record
            def requires storing the set in the recorddef at least between
            ppuload and deref/derefimpl }
-         ppufile.putsmallset(has_fields_with_mop);
+         ppufile.putset(tppuset1(has_fields_with_mop));
          ppufile.writeentry(ibrecsymtableoptions);
 
          inherited ppuwrite(ppufile);
@@ -2003,7 +2004,7 @@ implementation
                   )
                  ) then
                 begin
-                  { only watn when a parameter/local variable in a method
+                  { only warn when a parameter/local variable in a method
                     conflicts with a category method, because this can easily
                     happen due to all possible categories being imported via
                     CocoaAll }
@@ -3029,9 +3030,9 @@ implementation
                                   Search
 *****************************************************************************}
 
-     procedure addsymref(sym:tsym);
+     procedure addsymref(sym:tsym;def:tdef);
        var
-         owner: tsymtable;
+         owner,procowner : tsymtable;
        begin
          { for symbols used in preprocessor expressions, we don't want to
            increase references count (for smaller final binaries) }
@@ -3063,8 +3064,47 @@ implementation
                  { symbol is imported from another unit }
                  current_module.addimportedsym(sym);
              end;
+         { static symbols that are used in public functions must be exported
+           for packages as well }
+         if ([tf_supports_packages,tf_supports_hidden_symbols]<=target_info.flags) and
+             (owner.symtabletype=staticsymtable) and
+             assigned(current_procinfo) and
+             (
+               (
+                 (sym.typ=staticvarsym) and
+                 ([vo_is_public,vo_has_global_ref]*tstaticvarsym(sym).varoptions=[])
+               ) or (
+                 (sym.typ=localvarsym) and
+                 assigned(tlocalvarsym(sym).defaultconstsym) and
+                 ([vo_is_public,vo_has_global_ref]*tstaticvarsym(tlocalvarsym(sym).defaultconstsym).varoptions=[])
+               ) or (
+                 (sym.typ=procsym) and
+                 assigned(def) and
+                 (def.typ=procdef) and
+                 not (df_has_global_ref in def.defoptions) and
+                 not (po_public in tprocdef(def).procoptions)
+               )
+             ) then
+           begin
+             procowner:=current_procinfo.procdef.owner;
+             while procowner.symtabletype in [objectsymtable,recordsymtable] do
+               procowner:=tdef(procowner.defowner).owner;
+             if procowner.symtabletype=globalsymtable then
+               begin
+                 if sym.typ=procsym then
+                   current_procinfo.add_local_ref_def(def)
+                 else if sym.typ=staticvarsym then
+                   current_procinfo.add_local_ref_sym(sym)
+                 else
+                   current_procinfo.add_local_ref_sym(tlocalvarsym(sym).defaultconstsym);
+               end;
+           end;
        end;
 
+     procedure addsymref(sym:tsym);
+       begin
+         addsymref(sym,nil);
+       end;
 
     function is_owned_by(nesteddef,ownerdef:tdef):boolean;
       begin
@@ -3916,8 +3956,17 @@ implementation
               exit;
           end;
         { now search all helpers using the extendeddef as the starting point }
-        if m_multi_helpers in current_settings.modeswitches then
-          result:=search_best_objectpascal_helper(s,classh.extendeddef,contextclassh,srsym,srsymtable);
+        if (m_multi_helpers in current_settings.modeswitches) and
+            (
+              (current_structdef<>classh) or
+              assigned(classh.extendeddef)
+            ) then
+          begin
+            { this is only allowed if classh is currently parsed }
+            if not assigned(classh.extendeddef) then
+              internalerror(2019110101);
+            result:=search_best_objectpascal_helper(s,classh.extendeddef,contextclassh,srsym,srsymtable);
+          end;
       end;
 
     function search_specific_assignment_operator(assignment_type:ttoken;from_def,to_def:Tdef):Tprocdef;
@@ -4187,6 +4236,16 @@ implementation
           anything }
         if current_module.extendeddefs.count=0 then
           exit;
+        if (df_genconstraint in pd.defoptions) then
+          begin
+            { if we have a constraint for a class type or a single interface we
+              use that to resolve helpers at declaration time of the generic,
+              otherwise there can't be any helpers as the type isn't known yet }
+            if pd.typ=objectdef then
+              pd:=tobjectdef(pd).getparentdef
+            else
+              exit;
+          end;
         { no helpers for anonymous types }
         if ((pd.typ in [recorddef,objectdef]) and
             (

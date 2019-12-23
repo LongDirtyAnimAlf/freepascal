@@ -499,6 +499,7 @@ const
   nBitWiseOperationIs32Bit = 4028;
   nDuplicateMessageIdXAtY = 4029;
   nDispatchRequiresX = 4030;
+  nConstRefNotForXAsConst = 4031;
 // resourcestring patterns of messages
 resourcestring
   sPasElementNotSupported = 'Pascal element not supported: %s';
@@ -531,6 +532,7 @@ resourcestring
   sBitWiseOperationIs32Bit = 'Bitwise operation is 32-bit';
   sDuplicateMessageIdXAtY = 'Duplicate message id "%s" at %s';
   sDispatchRequiresX = 'Dispatch requires %s';
+  sConstRefNotForXAsConst = 'ConstRef not yet implemented for %s. Treating as Const';
 
 const
   ExtClassBracketAccessor = '[]'; // external name '[]' marks the array param getter/setter
@@ -1453,6 +1455,7 @@ type
     function ProcHasImplElements(Proc: TPasProcedure): boolean; override;
     function HasAnonymousFunctions(El: TPasImplElement): boolean;
     function GetTopLvlProcScope(El: TPasElement): TPas2JSProcedureScope;
+    function ProcCanBePrecompiled(Proc: TPasProcedure): boolean; virtual;
     function IsTObjectFreeMethod(El: TPasExpr): boolean; virtual;
     function IsExternalBracketAccessor(El: TPasElement): boolean;
     function IsExternalClassConstructor(El: TPasElement): boolean;
@@ -1886,6 +1889,7 @@ type
       AContext: TConvertContext): TJSElement; virtual;
     Procedure AddRTTIArgument(Arg: TPasArgument; TargetParams: TJSArrayLiteral;
       AContext: TConvertContext); virtual;
+    Function GetClassBIName(El: TPasClassType): string; virtual;
     Function CreateRTTINewType(El: TPasType; const CallFuncName: string;
       IsForward: boolean; AContext: TConvertContext; out ObjLit: TJSObjectLiteral): TJSCallExpression; virtual;
     Function CreateRTTIAttributes(const Attr: TPasExprArray; PosEl: TPasElement; aContext: TConvertContext): TJSElement; virtual;
@@ -3937,19 +3941,30 @@ end;
 procedure TPas2JSResolver.FinishArgument(El: TPasArgument);
 var
   TypeEl, ElTypeEl: TPasType;
+  C: TClass;
 begin
   inherited FinishArgument(El);
   if El.ArgType<>nil then
     begin
     TypeEl:=ResolveAliasType(El.ArgType);
+    C:=TypeEl.ClassType;
 
-    if TypeEl.ClassType=TPasPointerType then
+    if C=TPasPointerType then
       begin
       ElTypeEl:=ResolveAliasType(TPasPointerType(TypeEl).DestType);
       if ElTypeEl.ClassType=TPasRecordType then
         // ^record
       else
         RaiseMsg(20180423110239,nNotSupportedX,sNotSupportedX,['pointer'],El);
+      end;
+
+    if El.Access=argConstRef then
+      begin
+      if (C=TPasRecordType) or (C=TPasArrayType) then
+        // argConstRef works same as argConst for records -> ok
+      else
+        LogMsg(20191215133912,mtWarning,nConstRefNotForXAsConst,sConstRefNotForXAsConst,
+          [GetElementTypeName(TypeEl)],El);
       end;
     end;
 end;
@@ -5923,6 +5938,37 @@ begin
       end;
     El:=El.Parent;
     end;
+end;
+
+function TPas2JSResolver.ProcCanBePrecompiled(Proc: TPasProcedure): boolean;
+var
+  El: TPasElement;
+  TemplTypes: TFPList;
+  ProcScope: TPas2JSProcedureScope;
+  GenScope: TPasGenericScope;
+begin
+  if GetProcTemplateTypes(Proc)<>nil then
+    exit(false); // generic proc
+  ProcScope:=Proc.CustomData as TPas2JSProcedureScope;
+  if ProcScope.SpecializedFromItem<>nil then
+    exit(false); // specialized generic proc
+  El:=Proc;
+  repeat
+    El:=El.Parent;
+    if El=nil then
+      exit(true); // ok
+    if El is TPasProcedure then
+      exit(false); // Proc is a local proc
+    if El is TPasGenericType then
+      begin
+      TemplTypes:=TPasGenericType(El).GenericTemplateTypes;
+      if (TemplTypes<>nil) and (TemplTypes.Count>0) then
+        exit(false); // not fully specialized
+      GenScope:=El.CustomData as TPasGenericScope;
+      if GenScope.SpecializedFromItem<>nil then
+        exit(false); // method of a specialized class/record type
+      end;
+  until false;
 end;
 
 function TPas2JSResolver.IsTObjectFreeMethod(El: TPasExpr): boolean;
@@ -13608,13 +13654,10 @@ begin
     RaiseNotSupported(El,AContext,20170927183645);
   if El.Parent is TProcedureBody then
     RaiseNotSupported(El,AContext,20181231004355);
-  if El.IsExternal then
-    exit(ConvertExtClassType(El,AContext));
   if El.IsForward then
-    begin
-    Result:=ConvertClassForwardType(El,AContext);
-    exit;
-    end;
+    exit(ConvertClassForwardType(El,AContext))
+  else if El.IsExternal then
+    exit(ConvertExtClassType(El,AContext));
 
   if El.CustomData is TPas2JSClassScope then
     begin
@@ -13862,7 +13905,7 @@ begin
   if IsClassRTTICreatedBefore(aClass,El,AContext) then exit;
   // module.$rtti.$Class("classname");
   case aClass.ObjKind of
-  okClass: Creator:=GetBIName(pbifnRTTINewClass);
+  okClass: Creator:=GetClassBIName(aClass);
   okInterface: Creator:=GetBIName(pbifnRTTINewInterface);
   else
     RaiseNotSupported(El,AContext,20190128102749);
@@ -13885,7 +13928,7 @@ var
   Call: TJSCallExpression;
   ok: Boolean;
   List: TJSStatementList;
-  DestType: TPasType;
+  DestType: TPasClassType;
 begin
   Result:=nil;
   if not HasTypeInfo(El,AContext) then exit;
@@ -13898,16 +13941,16 @@ begin
   try
     Prop:=ObjLit.Elements.AddElement;
     Prop.Name:=TJSString(GetBIName(pbivnRTTIClassRef_InstanceType));
-    DestType:=AContext.Resolver.ResolveAliasType(El.DestType);
+    DestType:=AContext.Resolver.ResolveAliasType(El.DestType) as TPasClassType;
     Prop.Expr:=CreateTypeInfoRef(DestType,AContext,El);
 
-    if not IsClassRTTICreatedBefore(DestType as TPasClassType,El,AContext) then
+    if not IsClassRTTICreatedBefore(DestType,El,AContext) then
       begin
       // class rtti must be forward registered
       if not (AContext is TFunctionContext) then
         RaiseNotSupported(El,AContext,20170412102916);
       // prepend   module.$rtti.$Class("classname");
-      Call:=CreateRTTINewType(DestType,GetBIName(pbifnRTTINewClass),true,AContext,ObjLit);
+      Call:=CreateRTTINewType(DestType,GetClassBIName(DestType),true,AContext,ObjLit);
       if ObjLit<>nil then
         RaiseInconsistency(20170412102654,El);
       List:=TJSStatementList(CreateElement(TJSStatementList,El));
@@ -14977,7 +15020,7 @@ begin
 
   if (coStoreImplJS in Options) and (aResolver<>nil) then
     begin
-    if aResolver.GetTopLvlProc(El)=El then
+    if aResolver.ProcCanBePrecompiled(El) then
       begin
       ImplProcScope.BodyJS:=CreatePrecompiledJS(Result);
       ImplProcScope.EmptyJS:=BodyPas.Body=nil;
@@ -17350,7 +17393,7 @@ begin
   // add flags
   case Arg.Access of
     argDefault: ;
-    argConst: inc(Flags,pfConst);
+    argConst,argConstRef: inc(Flags,pfConst);
     argVar: inc(Flags,pfVar);
     argOut: inc(Flags,pfOut);
   else
@@ -17358,6 +17401,14 @@ begin
   end;
   if Flags>0 then
     Param.Elements.AddElement.Expr:=CreateLiteralNumber(Arg,Flags);
+end;
+
+function TPasToJSConverter.GetClassBIName(El: TPasClassType): string;
+begin
+  if El.IsExternal then
+    Result:=GetBIName(pbifnRTTINewExtClass)
+  else
+    Result:=GetBIName(pbifnRTTINewClass);
 end;
 
 function TPasToJSConverter.CreateRTTINewType(El: TPasType;
@@ -22308,7 +22359,7 @@ begin
     exit;
     end;
 
-  if not (TargetArg.Access in [argDefault,argVar,argOut,argConst]) then
+  if not (TargetArg.Access in [argDefault,argVar,argOut,argConst,argConstRef]) then
     DoError(20170213220927,nPasElementNotSupported,sPasElementNotSupported,
             [AccessNames[TargetArg.Access]],El);
   aResolver:=AContext.Resolver;

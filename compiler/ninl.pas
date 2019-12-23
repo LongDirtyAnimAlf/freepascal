@@ -2283,14 +2283,14 @@ implementation
                case inlinenumber of
                  in_const_abs :
                    if vl.signed then
-                     hp:=create_simplified_ord_const(abs(vl.svalue),resultdef,forinline)
+                     hp:=create_simplified_ord_const(abs(vl.svalue),resultdef,forinline,false)
                    else
-                     hp:=create_simplified_ord_const(vl.uvalue,resultdef,forinline);
+                     hp:=create_simplified_ord_const(vl.uvalue,resultdef,forinline,false);
                  in_const_sqr:
                    if vl.signed then
-                     hp:=create_simplified_ord_const(sqr(vl.svalue),resultdef,forinline)
+                     hp:=create_simplified_ord_const(sqr(vl.svalue),resultdef,forinline,false)
                    else
-                     hp:=create_simplified_ord_const(sqr(vl.uvalue),resultdef,forinline);
+                     hp:=create_simplified_ord_const(sqr(vl.uvalue),resultdef,forinline,false);
                  in_const_odd :
                    hp:=cordconstnode.create(qword(odd(int64(vl))),pasbool1type,true);
                  in_const_swap_word :
@@ -2520,7 +2520,7 @@ implementation
                           { the type of the original integer constant is irrelevant,
                             it should be automatically adapted to the new value
                             (except when inlining) }
-                          result:=create_simplified_ord_const(vl,resultdef,forinline)
+                          result:=create_simplified_ord_const(vl,resultdef,forinline,cs_check_range in localswitches)
                         else
                           { check the range for enums, chars, booleans }
                           result:=cordconstnode.create(vl,left.resultdef,not(nf_internal in flags));
@@ -2870,9 +2870,9 @@ implementation
                  (index.left.nodetype = ordconstn) and
                  not is_special_array(unpackedarraydef) then
                 begin
-                  adaptrange(unpackedarraydef,tordconstnode(index.left).value,rc_default);
+                  adaptrange(unpackedarraydef,tordconstnode(index.left).value,false,false,cs_check_range in current_settings.localswitches);
                   tempindex := tordconstnode(index.left).value + packedarraydef.highrange-packedarraydef.lowrange;
-                  adaptrange(unpackedarraydef,tempindex,rc_default);
+                  adaptrange(unpackedarraydef,tempindex,false,false,cs_check_range in current_settings.localswitches);
                 end;
             end;
 
@@ -3151,6 +3151,14 @@ implementation
                     CGMessage(type_e_no_type_info);
                   set_varstate(left,vs_read,[vsf_must_be_valid]);
                   resultdef:=typekindtype;
+                end;
+
+              in_ismanagedtype_x:
+                begin
+                  if target_info.system in systems_managed_vm then
+                    message(parser_e_feature_unsupported_for_vm);
+                  set_varstate(left,vs_read,[vsf_must_be_valid]);
+                  resultdef:=pasbool1type;
                 end;
 
               in_assigned_x:
@@ -3834,6 +3842,14 @@ implementation
               if sym.typ<>enumsym then
                 internalerror(2017081102);
               result:=genenumnode(tenumsym(sym));
+            end;
+
+          in_ismanagedtype_x:
+            begin
+              if left.resultdef.needs_inittable then
+                result:=cordconstnode.create(1,resultdef,false)
+              else
+                result:=cordconstnode.create(0,resultdef,false);
             end;
 
           in_assigned_x:

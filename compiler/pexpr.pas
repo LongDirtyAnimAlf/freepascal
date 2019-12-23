@@ -474,9 +474,10 @@ implementation
 
           in_typeinfo_x,
           in_objc_encode_x,
-          in_gettypekind_x:
+          in_gettypekind_x,
+          in_ismanagedtype_x:
             begin
-              if (l in [in_typeinfo_x,in_gettypekind_x]) or
+              if (l in [in_typeinfo_x,in_gettypekind_x,in_ismanagedtype_x]) or
                  (m_objectivec1 in current_settings.modeswitches) then
                 begin
                   consume(_LKLAMMER);
@@ -495,7 +496,7 @@ implementation
                   begin
                     ttypenode(p1).allowed:=true;
                     { allow helpers for TypeInfo }
-                    if l in [in_typeinfo_x,in_gettypekind_x] then
+                    if l in [in_typeinfo_x,in_gettypekind_x,in_ismanagedtype_x] then
                       ttypenode(p1).helperallowed:=true;
                   end;
     {              else
@@ -1379,7 +1380,12 @@ implementation
                                  not(po_staticmethod in tcallnode(p1).procdefinition.procoptions) and
                                  (not assigned(current_structdef) or
                                   not def_is_related(current_structdef,structh)) then
-                                Message(parser_e_only_static_members_via_object_type);
+                                begin
+                                  p1.free;
+                                  p1:=cerrornode.create;
+                                  Message(parser_e_only_static_members_via_object_type);
+                                  exit;
+                                end;
                             end;
                           { in Java, constructors are not automatically inherited
                             -> calling a constructor from a parent type will create

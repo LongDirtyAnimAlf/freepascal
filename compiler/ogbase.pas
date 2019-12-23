@@ -1208,10 +1208,10 @@ implementation
           {user} [oso_Data,oso_load,oso_write],
           {code} [oso_Data,oso_load,oso_executable],
           {Data} [oso_Data,oso_load,oso_write],
-{ Readonly data with relocations must be initially writable for some targets.
-  Moreover, e.g. for ELF it depends on whether the executable is linked statically or
-  dynamically. Here we declare it writable, target-specific descendants must provide
-  further handling. }
+          { Readonly data with relocations must be initially writable for some targets.
+            Moreover, e.g. for ELF it depends on whether the executable is linked statically or
+            dynamically. Here we declare it writable, target-specific descendants must provide
+            further handling. }
           {roData} [oso_Data,oso_load,oso_write],
           {roData_norel} [oso_Data,oso_load],
           {bss} [oso_load,oso_write],
@@ -1317,6 +1317,7 @@ implementation
           both progbits and flags as parameters }
         options:=sectiontype2options(atype);
         flags:=[];
+        progbits:=SPB_None;
         if oso_load in options then
           include(flags,SF_A);
         if oso_write in options then
@@ -2548,8 +2549,10 @@ implementation
           j      : longint;
           hs     : string;
           exesym : TExeSymbol;
+          tmpsym,
           objsym : TObjSymbol;
           grp    : TObjSectionGroup;
+          makeexternal : boolean;
         begin
           for j:=0 to ObjData.ObjSymbolList.Count-1 do
             begin
@@ -2607,26 +2610,20 @@ implementation
                 begin
                   exesym:=texesymbol.Create(FExeSymbolList,objsym.name);
                   exesym.ObjSymbol:=objsym;
-                end;
-              objsym.ExeSymbol:=exesym;
-              case objsym.bind of
-                AB_GLOBAL,
-                AB_PRIVATE_EXTERN:
-                  begin
-                    if exesym.State<>symstate_defined then
-                      begin
-                        exesym.ObjSymbol:=objsym;
-                        exesym.State:=symstate_defined;
-                      end
-                    else
+                end
+              else
+                begin
+                  if assigned(objsym.objsection) and assigned(exesym.objsymbol.objsection) then
+                    begin
                       if (oso_comdat in exesym.ObjSymbol.objsection.SecOptions) and
                          (oso_comdat in objsym.objsection.SecOptions) then
                         begin
                           if exesym.ObjSymbol.objsection.ComdatSelection=objsym.objsection.ComdatSelection then
                             begin
+                              makeexternal:=true;
                               case objsym.objsection.ComdatSelection of
                                 oscs_none:
-                                  Message1(link_e_duplicate_symbol,objsym.name);
+                                  makeexternal:=false;
                                 oscs_any:
                                   Message1(link_d_comdat_discard_any,objsym.name);
                                 oscs_same_size:
@@ -2641,22 +2638,48 @@ implementation
                                     Message1(link_d_comdat_discard_content,objsym.name);
                                 oscs_associative:
                                   { this is handled in a different way }
-                                  Message1(link_e_duplicate_symbol,objsym.name);
+                                  makeexternal:=false;
                                 oscs_largest:
                                   if objsym.size>exesym.ObjSymbol.size then
                                     begin
                                       Message1(link_d_comdat_replace_size,objsym.name);
-                                      exesym.ObjSymbol.exesymbol:=nil;
-                                      exesym.ObjSymbol:=objsym;
+                                      { we swap the symbols and turn the smaller one to an external
+                                        symbol }
+                                      tmpsym:=exesym.objsymbol;
+                                      exesym.objsymbol:=objsym;
+                                      objsym.exesymbol:=exesym;
+                                      objsym:=tmpsym;
                                     end;
                               end;
+                              if makeexternal then
+                                begin
+                                  { Undefine the symbol, causing relocations to it from same
+                                    objdata to be redirected to the symbol that is actually
+                                    used }
+                                  if objsym.bind=AB_GLOBAL then
+                                    objsym.bind:=AB_EXTERNAL;
+                                  { AB_WEAK_EXTERNAL remains unchanged }
+                                  objsym.objsection:=nil;
+                                end;
                             end
                           else
                             Message1(link_e_comdat_selection_differs,objsym.name);
-                        end
-                      else
-                        { specific error if ComDat flags are different? }
-                        Message1(link_e_duplicate_symbol,objsym.name);
+                        end;
+                    end;
+                end;
+
+              objsym.ExeSymbol:=exesym;
+              case objsym.bind of
+                AB_GLOBAL,
+                AB_PRIVATE_EXTERN:
+                  begin
+                    if exesym.State<>symstate_defined then
+                      begin
+                        exesym.ObjSymbol:=objsym;
+                        exesym.State:=symstate_defined;
+                      end
+                    else
+                      Message1(link_e_duplicate_symbol,objsym.name);
 
                     { hidden symbols must become local symbols in the executable }
                     if objsym.bind=AB_PRIVATE_EXTERN then
@@ -3042,7 +3065,12 @@ implementation
             begin
               exesym:=TExeSymbol(UnresolvedExeSymbols[i]);
               if (exesym.State=symstate_undefined) then
-                Comment(V_Error,'Undefined symbol: '+exesym.name);
+                begin
+                  if assigned(exesym.ObjSymbol) and assigned(exesym.ObjSymbol.ObjData) then
+                    Message2(link_e_undefined_symbol_in_obj,exesym.name,exesym.objsymbol.ObjData.Name)
+                  else
+                    Message1(link_e_undefined_symbol,exesym.name);
+                end;
             end;
 
         {

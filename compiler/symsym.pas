@@ -179,13 +179,9 @@ interface
           varspez       : tvarspez;  { sets the type of access }
           varregable    : tvarregable;
           varstate      : tvarstate;
-          { Has the address of this variable potentially escaped the
-            block in which is was declared?
-            could also be part of tabstractnormalvarsym, but there's
-            one byte left here till the next 4 byte alignment        }
-          addr_taken     : boolean;
-          { true if the variable is accessed in a different scope }
-          different_scope  : boolean;
+          {could also be part of tabstractnormalvarsym, but there's
+           one byte left here till the next 4 byte alignment        }
+          varsymaccess  : tvarsymaccessflags;
           constructor create(st:tsymtyp;const n : string;vsp:tvarspez;def:tdef;vopts:tvaroptions);
           constructor ppuload(st:tsymtyp;ppufile:tcompilerppufile);
           procedure ppuwrite(ppufile:tcompilerppufile);override;
@@ -198,11 +194,17 @@ interface
           _vardef     : tdef;
           vardefderef : tderef;
 
+          function get_addr_taken: boolean;
+          function get_different_scope: boolean;
           procedure setregable;
           procedure setvardef(const def: tdef);
           procedure setvardef_and_regable(def:tdef);
+          procedure set_addr_taken(AValue: boolean);
+          procedure set_different_scope(AValue: boolean);
         public
           property vardef: tdef read _vardef write setvardef_and_regable;
+          property addr_taken: boolean read get_addr_taken write set_addr_taken;
+          property different_scope: boolean read get_different_scope write set_different_scope;
       end;
 
       tfieldvarsym = class(tabstractvarsym)
@@ -507,7 +509,7 @@ implementation
        paramgr,
        procinfo,
        { ppu }
-       entfile
+       entfile,ppu
        ;
 
 {****************************************************************************
@@ -568,7 +570,7 @@ implementation
          current_module.symlist[SymId]:=self;
          ppufile.getposinfo(fileinfo);
          visibility:=tvisibility(ppufile.getbyte);
-         ppufile.getsmallset(symoptions);
+         ppufile.getset(tppuset2(symoptions));
          if sp_has_deprecated_msg in symoptions then
            deprecatedmsg:=ppufile.getpshortstring
          else
@@ -594,7 +596,7 @@ implementation
          }
          oldintfcrc:=ppufile.do_interface_crc;
          ppufile.do_interface_crc:=false;
-         ppufile.putsmallset(symoptions);
+         ppufile.putset(tppuset2(symoptions));
          if sp_has_deprecated_msg in symoptions then
            ppufile.putstring(deprecatedmsg^);
          ppufile.do_interface_crc:=oldintfcrc;
@@ -1380,7 +1382,7 @@ implementation
         pap : tpropaccesslisttypes;
       begin
          inherited ppuload(propertysym,ppufile);
-         ppufile.getsmallset(propoptions);
+         ppufile.getset(tppuset2(propoptions));
          if ppo_overrides in propoptions then
            ppufile.getderef(overriddenpropsymderef);
          ppufile.getderef(propdefderef);
@@ -1602,7 +1604,7 @@ implementation
         pap : tpropaccesslisttypes;
       begin
         inherited ppuwrite(ppufile);
-        ppufile.putsmallset(propoptions);
+        ppufile.putset(tppuset2(propoptions));
         if ppo_overrides in propoptions then
           ppufile.putderef(overriddenpropsymderef);
         ppufile.putderef(propdefderef);
@@ -1638,10 +1640,9 @@ implementation
          varstate:=vs_readwritten;
          varspez:=tvarspez(ppufile.getbyte);
          varregable:=tvarregable(ppufile.getbyte);
-         addr_taken:=ppufile.getboolean;
-         different_scope:=ppufile.getboolean;
+         ppufile.getset(tppuset1(varsymaccess));
          ppufile.getderef(vardefderef);
-         ppufile.getsmallset(varoptions);
+         ppufile.getset(tppuset4(varoptions));
       end;
 
 
@@ -1671,11 +1672,10 @@ implementation
          oldintfcrc:=ppufile.do_crc;
          ppufile.do_crc:=false;
          ppufile.putbyte(byte(varregable));
-         ppufile.putboolean(addr_taken);
-         ppufile.putboolean(different_scope);
+         ppufile.putset(tppuset1(varsymaccess));
          ppufile.do_crc:=oldintfcrc;
          ppufile.putderef(vardefderef);
-         ppufile.putsmallset(varoptions);
+         ppufile.putset(tppuset4(varoptions));
       end;
 
 
@@ -1731,6 +1731,24 @@ implementation
       end;
 
 
+    procedure tabstractvarsym.set_addr_taken(AValue: boolean);
+      begin
+        if AValue then
+          include(varsymaccess, vsa_addr_taken)
+        else
+          exclude(varsymaccess, vsa_addr_taken);
+      end;
+
+
+    procedure tabstractvarsym.set_different_scope(AValue: boolean);
+      begin
+        if AValue then
+          include(varsymaccess, vsa_different_scope)
+        else
+          exclude(varsymaccess, vsa_different_scope);
+      end;
+
+
     procedure tabstractvarsym.setregable;
       begin
         if vo_volatile in varoptions then
@@ -1768,6 +1786,18 @@ implementation
                   varregable:=vr_fpureg;
               end;
           end;
+      end;
+
+
+    function tabstractvarsym.get_addr_taken: boolean;
+      begin
+        result:=vsa_addr_taken in varsymaccess;
+      end;
+
+
+    function tabstractvarsym.get_different_scope: boolean;
+      begin
+        result:=vsa_different_scope in varsymaccess;
       end;
 
 
@@ -2453,7 +2483,7 @@ implementation
              begin
                ppufile.getderef(constdefderef);
                new(ps);
-               ppufile.getnormalset(ps^);
+               ppufile.getset(tppuset32(ps^));
                value.valueptr:=ps;
              end;
            constguid :
@@ -2561,7 +2591,7 @@ implementation
            constset :
              begin
                ppufile.putderef(constdefderef);
-               ppufile.putnormalset(value.valueptr^);
+               ppufile.putset(tppuset32(value.valueptr^));
              end;
            constguid :
              begin

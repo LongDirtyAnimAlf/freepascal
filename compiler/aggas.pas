@@ -216,9 +216,9 @@ implementation
 { TODO: .data.ro not yet working}
 {$if defined(arm) or defined(riscv64) or defined(powerpc)}
           '.rodata',
-{$else arm}
+{$else defined(arm) or defined(riscv64) or defined(powerpc)}
           '.data',
-{$endif arm}
+{$endif defined(arm) or defined(riscv64) or defined(powerpc)}
           '.rodata',
           '.bss',
           '.threadvar',
@@ -474,10 +474,12 @@ implementation
       var
         s : string;
         secflag: TSectionFlag;
+        sectionprogbits,
         sectionflags: boolean;
       begin
         writer.AsmLn;
         sectionflags:=false;
+        sectionprogbits:=false;
         case target_info.system of
          system_i386_OS2,
          system_i386_EMX: ;
@@ -489,7 +491,18 @@ implementation
                begin
                  writer.AsmWrite('.section ');
                  sectionflags:=true;
+                 sectionprogbits:=true;
                end;
+           end;
+         system_i386_win32,
+         system_x86_64_win64,
+         system_i386_wince,
+         system_arm_wince:
+           begin
+             { according to the GNU AS guide AS for COFF does not support the
+               progbits }
+             writer.AsmWrite('.section ');
+             sectionflags:=true;
            end;
          system_powerpc_darwin,
          system_i386_darwin,
@@ -508,39 +521,51 @@ implementation
          else
            begin
              writer.AsmWrite('.section ');
-             sectionflags:=true;
+             { sectionname may rename those sections, so we do not write flags/progbits for them,
+               the assembler will ignore them/spite out a warning anyways }
+             if not(atype in [sec_data,sec_rodata,sec_rodata_norel]) then
+               begin
+                 sectionflags:=true;
+                 sectionprogbits:=true;
+               end;
            end
         end;
         s:=sectionname(atype,aname,aorder);
         writer.AsmWrite(s);
         { flags explicitly defined? }
-        if sectionflags and
+        if (sectionflags or sectionprogbits) and
            ((secflags<>[]) or
             (secprogbits<>SPB_None)) then
           begin
-            s:=',"';
-            for secflag in secflags do
-              case secflag of
-                SF_A:
-                  s:=s+'a';
-                SF_W:
-                  s:=s+'w';
-                SF_X:
-                  s:=s+'x';
+            if sectionflags then
+              begin
+                s:=',"';
+                for secflag in secflags do
+                  case secflag of
+                    SF_A:
+                      s:=s+'a';
+                    SF_W:
+                      s:=s+'w';
+                    SF_X:
+                      s:=s+'x';
+                  end;
+                writer.AsmWrite(s+'"');
               end;
-            writer.AsmWrite(s+'"');
-            case secprogbits of
-              SPB_PROGBITS:
-                writer.AsmWrite(',%progbits');
-              SPB_NOBITS:
-                writer.AsmWrite(',%nobits');
-              SPB_NOTE:
-                writer.AsmWrite(',%note');
-              SPB_None:
-                ;
-              else
-                InternalError(2019100801);
-            end;
+            if sectionprogbits then
+              begin
+                case secprogbits of
+                  SPB_PROGBITS:
+                    writer.AsmWrite(',%progbits');
+                  SPB_NOBITS:
+                    writer.AsmWrite(',%nobits');
+                  SPB_NOTE:
+                    writer.AsmWrite(',%note');
+                  SPB_None:
+                    ;
+                  else
+                    InternalError(2019100801);
+                end;
+              end;
           end
         else
           case atype of

@@ -373,6 +373,11 @@ CPU_UNITS_DEFINED=1
 endif
 ifeq ($(SUBARCH),armv6m)
 CPU_UNITS=lpc8xx lpc11xx lpc122x stm32f0xx nrf51 cortexm0
+CPU_UNITS+=samc21e15a samc21e16a samc21e17a samc21e18a samc21g15a samc21g16a samc21g17a samc21g18a samc21j15a samc21j16a samc21j17a samc21j17au samc21j18a samc21j18au samd10c13a samd10c14a
+CPU_UNITS+=samd10d13a samd10d14a samd11c13a samd11c14a samd11d14am samd11d14as samd20e14
+CPU_UNITS+=samd20e15 samd20e16 samd20e17 samd20e18 samd20g14 samd20g15 samd20g16 samd20g17 samd20g18 samd20j14 samd20j15 samd20j16 samd20j17 samd20j18 samd21e15a
+CPU_UNITS+=samd21e15b samd21e15bu samd21e15l samd21e16a samd21e16b samd21e16bu samd21e16l samd21e17a samd21e18a samd21g15a samd21g15b samd21g15l samd21g16a samd21g16b samd21g16l
+CPU_UNITS+=samd21g17a samd21g17au samd21g18a samd21g18au samd21j15a samd21j15b samd21j16a samd21j16b samd21j17a samd21j18a
 CPU_UNITS_DEFINED=1
 endif
 ifeq ($(SUBARCH),armv7a)

@@ -843,10 +843,12 @@ implementation
               if iscvarargs then
                 p:=ctypeconvnode.create(p,voidpointertype);
             objectdef :
-              if (iscvarargs and
-                  not is_objc_class_or_protocol(p.resultdef)) or
+              if is_objc_class_or_protocol(p.resultdef) then
+                p:=ctypeconvnode.create(p,voidpointertype)
+              else if iscvarargs or
                  is_object(p.resultdef) then
-                CGMessagePos1(p.fileinfo,type_e_wrong_type_in_array_constructor,p.resultdef.typename);
+                CGMessagePos1(p.fileinfo,type_e_wrong_type_in_array_constructor,p.resultdef.typename)
+              else
             else
               CGMessagePos1(p.fileinfo,type_e_wrong_type_in_array_constructor,p.resultdef.typename);
           end;
@@ -1580,7 +1582,6 @@ implementation
         result:=nil;
         left:=caddnode.create(muln,left,crealconstnode.create(10000.0,left.resultdef));
         include(left.flags,nf_is_currency);
-        typecheckpass(left);
         { Convert constants directly, else call Round() }
         if left.nodetype=realconstn then
           result:=cordconstnode.create(round(trealconstnode(left).value_real),resultdef,false)
@@ -1608,6 +1609,7 @@ implementation
              begin
                left:=caddnode.create(muln,left,crealconstnode.create(10000.0,left.resultdef));
                include(left.flags,nf_is_currency);
+               include(flags,nf_is_currency);
                typecheckpass(left);
              end;
       end;
@@ -2513,7 +2515,7 @@ implementation
               te_convert_operator :
                 begin
                   include(current_procinfo.flags,pi_do_call);
-                  addsymref(aprocdef.procsym);
+                  addsymref(aprocdef.procsym,aprocdef);
                   hp:=ccallnode.create(ccallparanode.create(left,nil),Tprocsym(aprocdef.procsym),nil,nil,[],nil);
                   { tell explicitly which def we must use !! (PM) }
                   tcallnode(hp).procdefinition:=aprocdef;
@@ -2990,6 +2992,8 @@ implementation
                 begin
                   hp:=result;
                   result:=crealconstnode.create(trealconstnode(hp).value_real,resultdef);
+                  if nf_is_currency in hp.flags then
+                    include(result.flags,nf_is_currency);
                   if ([nf_explicit,nf_internal] * flags <> []) then
                     include(result.flags, nf_explicit);
                   hp.free;

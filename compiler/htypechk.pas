@@ -333,6 +333,7 @@ implementation
                              (treetyp in order_theoretic_operators)
                            ) or
                            (
+                             (m_mac in current_settings.modeswitches) and
                              is_stringlike(rd) and
                              (ld.typ=orddef) and
                              (treetyp in string_comparison_operators)) or
@@ -857,7 +858,7 @@ implementation
             exit;
           end;
 
-        addsymref(operpd.procsym);
+        addsymref(operpd.procsym,operpd);
 
         { the nil as symtable signs firstcalln that this is
           an overloaded operator }
@@ -1052,7 +1053,7 @@ implementation
             exit;
           end;
 
-        addsymref(operpd.procsym);
+        addsymref(operpd.procsym,operpd);
 
         { the nil as symtable signs firstcalln that this is
           an overloaded operator }

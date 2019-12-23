@@ -26,27 +26,36 @@ Type
 
   { TFixedExportFormatSettings }
 
-  TFixedExportFormatSettings = Class (TCustomExportFormatSettings)
+  TFixedExportFormatSettings = Class (TExportFormatSettings)
   private
     FCharMode: TCharMode;
+    FColumnSeparatorSpaceCount: Integer;
+    FHeaderRow: Boolean;
   Public
     Procedure Assign(Source: TPersistent); override;
   Published
+    // Whether or not the file should have a header row with field names
+    Property HeaderRow : Boolean Read FHeaderRow Write FHeaderRow default true;
+    // How to handle Unicode ?
     Property CharMode : TCharMode Read FCharMode Write FCharMode;
+    // Number of separator spaces between columns. Default 0.
+    Property ColumnSeparatorSpaceCount : Integer Read FColumnSeparatorSpaceCount Write FColumnSeparatorSpaceCount;
   end;
 
   TCustomFixedLengthExporter = Class(TCustomFileExporter)
   Private
     FCurrentRow : RawByteString;
     FCurrentRowUnicode : UnicodeString;
+    FSpaces : RawByteString;
+    FSpacesUnicode : UnicodeString;
     function GetCharMode: TCharMode;
     function GeTFixedExportFormatSettings: TFixedExportFormatSettings;
-    procedure SeTFixedExportFormatSettings(AValue: TFixedExportFormatSettings);
+    procedure SetFixedExportFormatSettings(AValue: TFixedExportFormatSettings);
   Protected
-    function ExportFieldAsUniCodeString(EF: TExportFieldItem): UnicodeString; virtual;
-    procedure ExportFieldAnsi(EF: TExportFieldItem); virtual;
-    procedure ExportFieldUTF16(EF: TExportFieldItem); virtual;
-    procedure ExportFieldUTF8(EF: TExportFieldItem); virtual;
+    function ExportFieldAsUniCodeString(EF: TExportFieldItem; isHeader: Boolean=False): UnicodeString; virtual;
+    procedure ExportFieldAnsi(EF: TExportFieldItem; isHeader: Boolean=False); virtual;
+    procedure ExportFieldUTF16(EF: TExportFieldItem; isHeader: Boolean=False); virtual;
+    procedure ExportFieldUTF8(EF: TExportFieldItem; isHeader: Boolean=False); virtual;
     Procedure BuildDefaultFieldMap(AMap : TExportFields); override;
     Function  CreateExportFields : TExportFields; override;
     Function  CreateFormatSettings: TCustomExportFormatSettings; override;
@@ -55,13 +64,12 @@ Type
     Procedure DoDataRowStart; override;
     Procedure ExportField(EF : TExportFieldItem); override;
     Procedure DoDataRowEnd; override;
+    Procedure DoDataHeader; override;
     Property CharMode : TCharMode Read GetCharMode;
-    Property FixedFormatSettings : TFixedExportFormatSettings Read GeTFixedExportFormatSettings Write SeTFixedExportFormatSettings;
+    Property FormatSettings : TFixedExportFormatSettings Read GetFixedExportFormatSettings Write SetFixedExportFormatSettings;
   end;
 
   TFixedLengthExporter = Class(TCustomFixedLengthExporter)
-  Public
-    Property FixedFormatSettings;
   Published
     Property FileName;
     Property Dataset;
@@ -86,12 +94,18 @@ Resourcestring
 
 implementation
 
+uses math;
+
 { TFixedExportFormatSettings }
 
 procedure TFixedExportFormatSettings.Assign(Source: TPersistent);
 begin
   if (Source is TFixedExportFormatSettings) then
+    begin
     CharMode:=TFixedExportFormatSettings(Source).CharMode;
+    HeaderRow:=TFixedExportFormatSettings(Source).HeaderRow;
+    ColumnSeparatorSpaceCount:=TFixedExportFormatSettings(Source).ColumnSeparatorSpaceCount;
+    end;
   inherited Assign(Source);
 end;
 
@@ -115,19 +129,19 @@ end;
 { TCustomFixedLengthExporter }
 
 
-procedure TCustomFixedLengthExporter.SeTFixedExportFormatSettings(AValue: TFixedExportFormatSettings);
+procedure TCustomFixedLengthExporter.SetFixedExportFormatSettings(AValue: TFixedExportFormatSettings);
 begin
-  FormatSettings:=AValue;
+  Inherited FormatSettings:=AValue;
 end;
 
 function TCustomFixedLengthExporter.GetCharMode: TCharMode;
 begin
-  Result:=FixedFormatSettings.CharMode;
+  Result:=FormatSettings.CharMode;
 end;
 
 function TCustomFixedLengthExporter.GeTFixedExportFormatSettings: TFixedExportFormatSettings;
 begin
-  Result:=Formatsettings as TFixedExportFormatSettings;
+  Result:=(Inherited Formatsettings) as TFixedExportFormatSettings;
 end;
 
 procedure TCustomFixedLengthExporter.BuildDefaultFieldMap(AMap: TExportFields);
@@ -180,18 +194,44 @@ Const
     {ftWideMemo} 0
     );
 
+  Function CalcLbool: integer;
+  var
+    LTrue,LFalse : Integer;
+
+  begin
+    Case charmode of
+    cmUTF8:
+      begin
+      LTrue:=Length(UTF8Decode(FormatSettings.BooleanTrue));
+      LFalse:=Length(UTF8Decode(FormatSettings.BooleanFalse));
+      end;
+     else
+       LTrue:=Length(FormatSettings.BooleanTrue);
+       LFalse:=Length(FormatSettings.BooleanFalse);
+     end;
+    Result:=Max(LTrue,LFalse);
+  end;
+
+
 Var
-  I,W : Integer;
+  I,W,LBool : Integer;
   F : TField;
   FL : TFixedLengthExportFieldItem;
 
 begin
   inherited BuildDefaultFieldMap(AMap);
+  lbool:=0;
   For I:=0 to AMap.Count-1 do
     begin
     FL:=TFixedLengthExportFieldItem(AMAP[i]);
     F:=Dataset.Fields[i];
     W:= FieldWidths[F.DataType];
+    if F.DataType = ftBoolean then
+      begin
+      if lBool=0 then
+        LBool:=CalcLBool;
+      W:=lBool;
+      end;
     If (W>0) then
       FL.Width:=W
     else if (W=0) then
@@ -218,6 +258,8 @@ procedure TCustomFixedLengthExporter.DoBeforeExecute;
 begin
   inherited DoBeforeExecute;
   OpenTextFile;
+  FSpaces:=StringOfChar(' ',FormatSettings.ColumnSeparatorSpaceCount);
+  FSpacesUnicode:=StringOfChar(' ',FormatSettings.ColumnSeparatorSpaceCount);
 end;
 
 procedure TCustomFixedLengthExporter.DoAfterExecute;
@@ -243,7 +285,7 @@ begin
 end;
 
 
-Function TCustomFixedLengthExporter.ExportFieldAsUniCodeString(EF: TExportFieldItem) : UnicodeString;
+Function TCustomFixedLengthExporter.ExportFieldAsUniCodeString(EF: TExportFieldItem; isHeader : Boolean = False) : UnicodeString;
 
 Var
   S,SS : UnicodeString;
@@ -251,7 +293,10 @@ Var
   L,W : Integer;
 
 begin
-  S:=UTF8Decode(FormatField(EF.Field));
+  if isHeader then
+    S:=UTF8Decode(EF.ExportedName)
+  else
+    S:=UTF8Decode(FormatField(EF.Field));
   If EF is TFixedLengthExportFieldItem then
     begin
     FL:=TFixedLengthExportFieldItem(EF);
@@ -278,21 +323,26 @@ begin
   Result:=S;
 end;
 
-procedure TCustomFixedLengthExporter.ExportFieldUTF16(EF: TExportFieldItem);
+procedure TCustomFixedLengthExporter.ExportFieldUTF16(EF: TExportFieldItem; isHeader : Boolean = False);
 
 begin
-  FCurrentRowUnicode:=FCurrentRowUnicode+ExportFieldAsUnicodeString(EF);
+  if (FormatSettings.ColumnSeparatorSpaceCount>0) and (Length(FCurrentRowUnicode)>0) then
+    FCurrentRowUnicode:=FCurrentRowUnicode+FSpacesUnicode;
+
+  FCurrentRowUnicode:=FCurrentRowUnicode+ExportFieldAsUnicodeString(EF,isHeader);
 end;
 
 
-procedure TCustomFixedLengthExporter.ExportFieldUTF8(EF: TExportFieldItem);
+procedure TCustomFixedLengthExporter.ExportFieldUTF8(EF: TExportFieldItem; isHeader : Boolean = False);
 
 
 begin
-  FCurrentRow:=FCurrentRow+UTF8Encode(ExportFieldAsUnicodeString(EF));
+  if (FormatSettings.ColumnSeparatorSpaceCount>0) and (Length(FCurrentRow)>0) then
+    FCurrentRow:=FCurrentRow+FSpaces;
+  FCurrentRow:=FCurrentRow+UTF8Encode(ExportFieldAsUnicodeString(EF,isHeader));
 end;
 
-procedure TCustomFixedLengthExporter.ExportFieldAnsi(EF: TExportFieldItem);
+procedure TCustomFixedLengthExporter.ExportFieldAnsi(EF: TExportFieldItem; isHeader : Boolean = False);
 
 Var
   S,SS : String;
@@ -300,7 +350,10 @@ Var
   FL : TFixedLengthExportFieldItem;
 
 begin
-  S:=FormatField(EF.Field);
+  if isHeader then
+    S:=EF.ExportedName
+  else
+    S:=FormatField(EF.Field);
   If EF is TFixedLengthExportFieldItem then
     begin
     FL:=TFixedLengthExportFieldItem(EF);
@@ -324,6 +377,8 @@ begin
     else
       S:=S+SS;
     end;
+  if (FormatSettings.ColumnSeparatorSpaceCount>0) and (Length(FCurrentRow)>0) then
+    FCurrentRow:=FCurrentRow+FSpaces;
   FCurrentRow:=FCurrentRow+S;
 end;
 
@@ -335,6 +390,31 @@ begin
     Writeln(TextFile,FCurrentRowUnicode);
   FCurrentRow:='';
   FCurrentRowUnicode:='';
+end;
+
+procedure TCustomFixedLengthExporter.DoDataHeader;
+
+Var
+  I : Integer;
+  EF: TExportFieldItem;
+
+begin
+  FCurrentRow:='';
+  if FormatSettings.HeaderRow then
+    begin
+    For I:=0 to ExportFields.Count-1 do
+      begin
+      EF:=ExportFields[I];
+      If EF.Enabled then
+        Case CharMode of
+          cmANSI : ExportFieldAnsi(EF,True);
+          cmUTF8 : ExportFieldUTF8(EF,True);
+          cmUTF16 : ExportFieldUTF16(EF,True);
+        end;
+      end;
+    DoDataRowEnd;
+    end;
+  inherited DoDataHeader;
 end;
 
 Procedure RegisterFixedExportFormat;

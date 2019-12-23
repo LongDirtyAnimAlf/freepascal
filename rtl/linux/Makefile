@@ -358,6 +358,10 @@ ifeq ($(ARCH),sparc64)
 override LOADERS=
 SYSINIT_UNITS=si_prc si_c si_g si_dll
 endif
+ifeq ($(ARCH),riscv32)
+override LOADERS=
+SYSINIT_UNITS=si_prc si_dll si_c
+endif
 ifeq ($(ARCH),riscv64)
 override LOADERS=
 SYSINIT_UNITS=si_prc si_dll si_c
@@ -2589,7 +2593,7 @@ endif
 ifeq ($(FULL_TARGET),riscv64-embedded)
 override COMPILER_TARGETDIR+=.
 endif
-override SHARED_LIBUNITS=$(SYSTEMUNIT) objpas strings dos unix baseunix unixtype unixutil sysutils typinfo math $(CPU_UNITS) getopts errors  classes fgl sysconst rtlconsts types
+override SHARED_LIBUNITS=$(SYSTEMUNIT) objpas strings dos unix baseunix unixtype unixutil sysutils typinfo math $(CPU_UNITS) getopts errors  classes fgl sysconst syscall rtlconsts types linux sortbase
 ifdef REQUIRE_UNITSDIR
 override UNITSDIR+=$(REQUIRE_UNITSDIR)
 endif
@@ -3523,7 +3527,7 @@ fpc_shared:
 ifdef HASSHAREDLIB
 	$(MAKE) all CREATESHARED=1 LINKSHARED=1 CREATESMART=1
 ifneq ($(SHARED_BUILD),n)
-	$(PPUMOVE) -q $(SHARED_LIBUNITS) -i$(COMPILER_UNITTARGETDIR) -o$(SHARED_FULLNAME) -d$(COMPILER_UNITTARGETDIR)
+	$(PPUMOVE) -q $(SHARED_LIBUNITS) -i$(COMPILER_UNITTARGETDIR) -o$(SHARED_FULLNAME) -d$(COMPILER_UNITTARGETDIR) -P$(BINUTILSPREFIX)
 endif
 else
 	@$(ECHO) Shared Libraries not supported
@@ -3855,12 +3859,18 @@ ifeq ($(ARCH),mips)
   ifeq ($(PIC_OPT),1)
     ASTARGET+= -KPIC
   endif
+  ifneq (,$(findstring -ao-xgot, $(FPC_OPT)))
+    ASTARGET+= -xgot
+  endif
   ASSHAREDOPT=-KPIC
 endif
 ifeq ($(ARCH),mipsel)
   ASTARGET=-32 -mabi=32 -mips2 -EL
   ifeq ($(PIC_OPT),1)
     ASTARGET+= -KPIC
+  endif
+  ifneq (,$(findstring -ao-xgot, $(FPC_OPT)))
+    ASTARGET+= -xgot
   endif
   ASSHAREDOPT=-KPIC
 endif

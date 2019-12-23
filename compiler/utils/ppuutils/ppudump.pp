@@ -2729,7 +2729,8 @@ const
      { this should never happen for defs stored to a ppu file }
      (mask:df_not_registered_no_free;  str:'Unregistered/No free (invalid)'),
      (mask:df_llvm_no_struct_packing;  str:'LLVM unpacked struct'),
-     (mask:df_internal;       str:'Internal')
+     (mask:df_internal;       str:'Internal'),
+     (mask:df_has_global_ref; str:'Has Global Ref')
   );
   defstate : array[1..ord(high(tdefstate))] of tdefstateinfo=(
      (mask:ds_vmt_written;           str:'VMT Written'),
@@ -3068,7 +3069,8 @@ const
      (mask:vo_has_section;     str:'HasSection'),
      (mask:vo_force_finalize;  str:'ForceFinalize'),
      (mask:vo_is_default_var;  str:'DefaultIntrinsicVar'),
-     (mask:vo_is_far;          str:'IsFar')
+     (mask:vo_is_far;          str:'IsFar'),
+     (mask:vo_has_global_ref;  str:'HasGlobalRef')
   );
 type
   tvaraccessdesc=record
@@ -4707,15 +4709,6 @@ begin
        b:=readentry;
        case b of
 
-         ibextraheader:
-           begin
-             CurUnit.LongVersion:=cardinal(getlongint);
-             Writeln(['LongVersion: ',CurUnit.LongVersion]);
-             getset(tppuset4(CurUnit.ModuleFlags));
-             if mf_symansistr in CurUnit.ModuleFlags then
-               SymAnsiStr:=true;
-           end;
-
          ibmodulename :
            begin
              CurUnit.Name:=getstring;
@@ -4906,7 +4899,9 @@ begin
   CurUnit.LongVersion:=cardinal(ppufile.getlongint);
   Writeln(['LongVersion: ',CurUnit.LongVersion]);
   ppufile.getset(tppuset4(CurUnit.ModuleFlags));
-  result:=ppufile.EndOfEntry;
+  result:=ppufile.EndOfEntry and (CurUnit.LongVersion=CurrentPPULongVersion);
+  if mf_symansistr in CurUnit.ModuleFlags then
+    SymAnsiStr:=true;
 end;
 
 procedure dofile (filename : string);

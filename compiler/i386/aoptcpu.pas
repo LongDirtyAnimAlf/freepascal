@@ -85,154 +85,53 @@ unit aoptcpu;
 
     function TCPUAsmOPtimizer.PrePeepHoleOptsCpu(var p: tai): boolean;
       begin
-        Result:=False;
-        case p.typ of
-          ait_instruction:
-            begin
-              if InsContainsSegRef(taicpu(p)) then
-                begin
-                  p := tai(p.next);
-                  Result:=true;
-                end;
-              case taicpu(p).opcode Of
-                A_IMUL:
-                  Result:=PrePeepholeOptIMUL(p);
-                A_SAR,A_SHR:
-                  Result:=PrePeepholeOptSxx(p);
-                A_XOR:
+        repeat
+          Result:=False;
+          case p.typ of
+            ait_instruction:
+              begin
+                if InsContainsSegRef(taicpu(p)) then
                   begin
-                    if (taicpu(p).oper[0]^.typ = top_reg) and
-                       (taicpu(p).oper[1]^.typ = top_reg) and
-                       (taicpu(p).oper[0]^.reg = taicpu(p).oper[1]^.reg) then
-                     { temporarily change this to 'mov reg,0' to make it easier }
-                     { for the CSE. Will be changed back in pass 2              }
-                      begin
-                        taicpu(p).opcode := A_MOV;
-                        taicpu(p).loadConst(0,0);
-                        Result:=true;
-                      end;
+                    p := tai(p.next);
+                    { Nothing's actually changed, so no need to set Result to True,
+                      but try again to see if an instruction immediately follows }
+                    Continue;
                   end;
-                else
-                  ;
-              end;
+                case taicpu(p).opcode Of
+                  A_IMUL:
+                    Result:=PrePeepholeOptIMUL(p);
+                  A_SAR,A_SHR:
+                    Result:=PrePeepholeOptSxx(p);
+                  A_XOR:
+                    begin
+                      if (taicpu(p).oper[0]^.typ = top_reg) and
+                         (taicpu(p).oper[1]^.typ = top_reg) and
+                         (taicpu(p).oper[0]^.reg = taicpu(p).oper[1]^.reg) then
+                       { temporarily change this to 'mov reg,0' to make it easier }
+                       { for the CSE. Will be changed back in pass 2              }
+                        begin
+                          taicpu(p).opcode := A_MOV;
+                          taicpu(p).loadConst(0,0);
+                          Result:=true;
+                        end;
+                    end;
+                  else
+                    { Do nothing };
+                end;
+            end;
+          else
+            { Do nothing };
           end;
-        else
-          ;
-        end;
+          Break;
+        until False;
       end;
 
 
     function TCPUAsmOPtimizer.PeepHoleOptPass1Cpu(var p: tai): boolean;
-
-      function WriteOk : Boolean;
-        begin
-          writeln('Ok');
-          Result:=True;
-        end;
-
       var
         hp1,hp2 : tai;
         hp3,hp4: tai;
         v:aint;
-
-      function GetFinalDestination(asml: TAsmList; hp: taicpu; level: longint): boolean;
-        {traces sucessive jumps to their final destination and sets it, e.g.
-         je l1                je l3
-         <code>               <code>
-         l1:       becomes    l1:
-         je l2                je l3
-         <code>               <code>
-         l2:                  l2:
-         jmp l3               jmp l3
-
-         the level parameter denotes how deeep we have already followed the jump,
-         to avoid endless loops with constructs such as "l5: ; jmp l5"           }
-
-        var p1, p2: tai;
-            l: tasmlabel;
-
-        function FindAnyLabel(hp: tai; var l: tasmlabel): Boolean;
-          begin
-            FindAnyLabel := false;
-            while assigned(hp.next) and
-                  (tai(hp.next).typ in (SkipInstr+[ait_align])) Do
-              hp := tai(hp.next);
-            if assigned(hp.next) and
-               (tai(hp.next).typ = ait_label) then
-              begin
-                FindAnyLabel := true;
-                l := tai_label(hp.next).labsym;
-              end
-          end;
-
-        begin
-          GetfinalDestination := false;
-          if level > 20 then
-            exit;
-          p1 := getlabelwithsym(tasmlabel(hp.oper[0]^.ref^.symbol));
-          if assigned(p1) then
-            begin
-              SkipLabels(p1,p1);
-              if (tai(p1).typ = ait_instruction) and
-                 (taicpu(p1).is_jmp) then
-                if { the next instruction after the label where the jump hp arrives}
-                   { is unconditional or of the same type as hp, so continue       }
-                   (taicpu(p1).condition in [C_None,hp.condition]) or
-                   { the next instruction after the label where the jump hp arrives}
-                   { is the opposite of hp (so this one is never taken), but after }
-                   { that one there is a branch that will be taken, so perform a   }
-                   { little hack: set p1 equal to this instruction (that's what the}
-                   { last SkipLabels is for, only works with short bool evaluation)}
-                   ((taicpu(p1).condition = inverse_cond(hp.condition)) and
-                    SkipLabels(p1,p2) and
-                    (p2.typ = ait_instruction) and
-                    (taicpu(p2).is_jmp) and
-                    (taicpu(p2).condition in [C_None,hp.condition]) and
-                    SkipLabels(p1,p1)) then
-                  begin
-                    { quick check for loops of the form "l5: ; jmp l5 }
-                    if (tasmlabel(taicpu(p1).oper[0]^.ref^.symbol).labelnr =
-                         tasmlabel(hp.oper[0]^.ref^.symbol).labelnr) then
-                      exit;
-                    if not GetFinalDestination(asml, taicpu(p1),succ(level)) then
-                      exit;
-                    tasmlabel(hp.oper[0]^.ref^.symbol).decrefs;
-                    hp.oper[0]^.ref^.symbol:=taicpu(p1).oper[0]^.ref^.symbol;
-                    tasmlabel(hp.oper[0]^.ref^.symbol).increfs;
-                  end
-                else
-                  if (taicpu(p1).condition = inverse_cond(hp.condition)) then
-                    if not FindAnyLabel(p1,l) then
-                      begin
-{$ifdef finaldestdebug}
-                        insertllitem(asml,p1,p1.next,tai_comment.Create(
-                          strpnew('previous label inserted'))));
-{$endif finaldestdebug}
-                        current_asmdata.getjumplabel(l);
-                        insertllitem(p1,p1.next,tai_label.Create(l));
-                        tasmlabel(taicpu(hp).oper[0]^.ref^.symbol).decrefs;
-                        hp.oper[0]^.ref^.symbol := l;
-                        l.increfs;
-        {               this won't work, since the new label isn't in the labeltable }
-        {               so it will fail the rangecheck. Labeltable should become a   }
-        {               hashtable to support this:                                   }
-        {               GetFinalDestination(asml, hp);                               }
-                      end
-                    else
-                      begin
-{$ifdef finaldestdebug}
-                        insertllitem(asml,p1,p1.next,tai_comment.Create(
-                          strpnew('next label reused'))));
-{$endif finaldestdebug}
-                        l.increfs;
-                        hp.oper[0]^.ref^.symbol := l;
-                        if not GetFinalDestination(asml, hp,succ(level)) then
-                          exit;
-                      end;
-            end;
-          GetFinalDestination := true;
-        end;
-
       begin
         result:=False;
         case p.Typ Of
@@ -240,93 +139,12 @@ unit aoptcpu;
             begin
               current_filepos:=taicpu(p).fileinfo;
               if InsContainsSegRef(taicpu(p)) then
-                begin
-                  p:=tai(p.next);
-                  Result:=true;
-                  exit;
-                end;
+                exit;
               case taicpu(p).opcode Of
                 A_AND:
                   Result:=OptPass1And(p);
                 A_CMP:
-                  begin
-                    { cmp register,$8000                neg register
-                      je target                 -->     jo target
-
-                      .... only if register is deallocated before jump.}
-                    case Taicpu(p).opsize of
-                      S_B: v:=$80;
-                      S_W: v:=$8000;
-                      S_L: v:=aint($80000000);
-                      else
-                        internalerror(2013112905);
-                    end;
-                    if (taicpu(p).oper[0]^.typ=Top_const) and
-                       (taicpu(p).oper[0]^.val=v) and
-                       (Taicpu(p).oper[1]^.typ=top_reg) and
-                       GetNextInstruction(p, hp1) and
-                       (hp1.typ=ait_instruction) and
-                       (taicpu(hp1).opcode=A_Jcc) and
-                       (Taicpu(hp1).condition in [C_E,C_NE]) and
-                       not(RegInUsedRegs(Taicpu(p).oper[1]^.reg, UsedRegs)) then
-                      begin
-                        Taicpu(p).opcode:=A_NEG;
-                        Taicpu(p).loadoper(0,Taicpu(p).oper[1]^);
-                        Taicpu(p).clearop(1);
-                        Taicpu(p).ops:=1;
-                        if Taicpu(hp1).condition=C_E then
-                          Taicpu(hp1).condition:=C_O
-                        else
-                          Taicpu(hp1).condition:=C_NO;
-                        Result:=true;
-                      end;
-                    {
-                    @@2:                              @@2:
-                      ....                              ....
-                      cmp operand1,0
-                      jle/jbe @@1
-                      dec operand1             -->      sub operand1,1
-                      jmp @@2                           jge/jae @@2
-                    @@1:                              @@1:
-                      ...                               ....}
-                    if (taicpu(p).oper[0]^.typ = top_const) and
-                       (taicpu(p).oper[1]^.typ in [top_reg,top_ref]) and
-                       (taicpu(p).oper[0]^.val = 0) and
-                       GetNextInstruction(p, hp1) and
-                       (hp1.typ = ait_instruction) and
-                       (taicpu(hp1).is_jmp) and
-                       (taicpu(hp1).opcode=A_Jcc) and
-                       (taicpu(hp1).condition in [C_LE,C_BE]) and
-                       GetNextInstruction(hp1,hp2) and
-                       (hp2.typ = ait_instruction) and
-                       (taicpu(hp2).opcode = A_DEC) and
-                       OpsEqual(taicpu(hp2).oper[0]^,taicpu(p).oper[1]^) and
-                       GetNextInstruction(hp2, hp3) and
-                       (hp3.typ = ait_instruction) and
-                       (taicpu(hp3).is_jmp) and
-                       (taicpu(hp3).opcode = A_JMP) and
-                       GetNextInstruction(hp3, hp4) and
-                       FindLabel(tasmlabel(taicpu(hp1).oper[0]^.ref^.symbol),hp4) then
-                      begin
-                        taicpu(hp2).Opcode := A_SUB;
-                        taicpu(hp2).loadoper(1,taicpu(hp2).oper[0]^);
-                        taicpu(hp2).loadConst(0,1);
-                        taicpu(hp2).ops:=2;
-                        taicpu(hp3).Opcode := A_Jcc;
-                        case taicpu(hp1).condition of
-                          C_LE: taicpu(hp3).condition := C_GE;
-                          C_BE: taicpu(hp3).condition := C_AE;
-                          else
-                            internalerror(2019050903);
-                        end;
-                        asml.remove(p);
-                        asml.remove(hp1);
-                        p.free;
-                        hp1.free;
-                        p := hp2;
-                        Result:=true;
-                      end
-                  end;
+                  Result:=OptPass1Cmp(p);
                 A_FLD:
                   Result:=OptPass1FLD(p);
                 A_FSTP,A_FISTP:
@@ -338,91 +156,6 @@ unit aoptcpu;
                 A_MOVSX,
                 A_MOVZX :
                   Result:=OptPass1Movx(p);
-(* should not be generated anymore by the current code generator
-                A_POP:
-                  begin
-                    if target_info.system=system_i386_go32v2 then
-                    begin
-                      { Transform a series of pop/pop/pop/push/push/push to }
-                      { 'movl x(%esp),%reg' for go32v2 (not for the rest,   }
-                      { because I'm not sure whether they can cope with     }
-                      { 'movl x(%esp),%reg' with x > 0, I believe we had    }
-                      { such a problem when using esp as frame pointer (JM) }
-                      if (taicpu(p).oper[0]^.typ = top_reg) then
-                        begin
-                          hp1 := p;
-                          hp2 := p;
-                          l := 0;
-                          while getNextInstruction(hp1,hp1) and
-                                (hp1.typ = ait_instruction) and
-                                (taicpu(hp1).opcode = A_POP) and
-                                (taicpu(hp1).oper[0]^.typ = top_reg) do
-                            begin
-                              hp2 := hp1;
-                              inc(l,4);
-                            end;
-                          getLastInstruction(p,hp3);
-                          l1 := 0;
-                          while (hp2 <> hp3) and
-                                assigned(hp1) and
-                                (hp1.typ = ait_instruction) and
-                                (taicpu(hp1).opcode = A_PUSH) and
-                                (taicpu(hp1).oper[0]^.typ = top_reg) and
-                                (taicpu(hp1).oper[0]^.reg.enum = taicpu(hp2).oper[0]^.reg.enum) do
-                            begin
-                              { change it to a two op operation }
-                              taicpu(hp2).oper[1]^.typ:=top_none;
-                              taicpu(hp2).ops:=2;
-                              taicpu(hp2).opcode := A_MOV;
-                              taicpu(hp2).loadoper(1,taicpu(hp1).oper[0]^);
-                              reference_reset(tmpref);
-                              tmpRef.base.enum:=R_INTREGISTER;
-                              tmpRef.base.number:=NR_STACK_POINTER_REG;
-                              convert_register_to_enum(tmpref.base);
-                              tmpRef.offset := l;
-                              taicpu(hp2).loadRef(0,tmpRef);
-                              hp4 := hp1;
-                              getNextInstruction(hp1,hp1);
-                              asml.remove(hp4);
-                              hp4.free;
-                              getLastInstruction(hp2,hp2);
-                              dec(l,4);
-                              inc(l1);
-                            end;
-                          if l <> -4 then
-                            begin
-                              inc(l,4);
-                              for l1 := l1 downto 1 do
-                                begin
-                                  getNextInstruction(hp2,hp2);
-                                  dec(taicpu(hp2).oper[0]^.ref^.offset,l);
-                                end
-                            end
-                        end
-                      end
-                    else
-                      begin
-                        if (taicpu(p).oper[0]^.typ = top_reg) and
-                          GetNextInstruction(p, hp1) and
-                          (tai(hp1).typ=ait_instruction) and
-                          (taicpu(hp1).opcode=A_PUSH) and
-                          (taicpu(hp1).oper[0]^.typ = top_reg) and
-                          (taicpu(hp1).oper[0]^.reg.enum=taicpu(p).oper[0]^.reg.enum) then
-                          begin
-                            { change it to a two op operation }
-                            taicpu(p).oper[1]^.typ:=top_none;
-                            taicpu(p).ops:=2;
-                            taicpu(p).opcode := A_MOV;
-                            taicpu(p).loadoper(1,taicpu(p).oper[0]^);
-                            reference_reset(tmpref);
-                            TmpRef.base.enum := R_ESP;
-                            taicpu(p).loadRef(0,TmpRef);
-                            asml.remove(hp1);
-                            hp1.free;
-                          end;
-                      end;
-                  end;
-*)
                 A_PUSH:
                   begin
                     if (taicpu(p).opsize = S_W) and

@@ -109,6 +109,8 @@ interface
 
     function llvmasmsymname(const sym: TAsmSymbol): TSymStr;
 
+    function llvmfloatintrinsicsuffix(def: tfloatdef): TIDString;
+
 
 implementation
 
@@ -290,6 +292,23 @@ implementation
         result:='label %'+sym.name;
     end;
 
+  function llvmfloatintrinsicsuffix(def: tfloatdef): TIDString;
+    begin
+      case def.floattype of
+        s32real:
+          result:='_f32';
+        s64real:
+          result:='_f64';
+        s80real,sc80real:
+          result:='_f80';
+        s128real:
+          result:='_f128';
+        else
+          { comp/currency need to be converted to s(c)80real first }
+          internalerror(2019122902);
+      end;
+    end;
+
 
   function llvmbyvalparaloc(paraloc: pcgparalocation): boolean;
     begin
@@ -359,7 +378,9 @@ implementation
             end;
           pointerdef :
             begin
-              if is_voidpointer(def) then
+              if def=llvm_metadatatype then
+                encodedstr:=encodedstr+'metadata'
+              else if is_voidpointer(def) then
                 encodedstr:=encodedstr+'i8*'
               else
                 begin
@@ -464,7 +485,13 @@ implementation
             end;
           arraydef :
             begin
-              if is_array_of_const(def) then
+              if tarraydef(def).is_hwvector then
+                begin
+                  encodedstr:=encodedstr+'<'+tostr(tarraydef(def).elecount)+' x ';
+                  llvmaddencodedtype_intern(tarraydef(def).elementdef,[lef_inaggregate],encodedstr);
+                  encodedstr:=encodedstr+'>';
+                end
+              else if is_array_of_const(def) then
                 begin
                   encodedstr:=encodedstr+'[0 x ';
                   llvmaddencodedtype_intern(search_system_type('TVARREC').typedef,[lef_inaggregate],encodedstr);
@@ -811,7 +838,7 @@ implementation
           begin
             callingconv:=llvm_callingconvention_name(def.proccalloption);
             if callingconv<>'' then
-              encodedstr:=encodedstr+' "'+callingconv+'"';
+              encodedstr:=encodedstr+' '+callingconv;
           end;
         { when writing a definition, we have to write the parameter names, and
           those are only available on the callee side. In all other cases,

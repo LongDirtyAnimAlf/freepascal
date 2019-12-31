@@ -440,7 +440,9 @@ type
     { a nested routine accesses a local variable from this routine }
     pio_nested_access,
     { a stub/thunk }
-    pio_thunk
+    pio_thunk,
+    { compiled with fastmath enabled }
+    pio_fastmath
   );
   timplprocoptions = set of timplprocoption;
 
@@ -555,7 +557,8 @@ type
     ado_IsConstructor,      // array constructor (e.g. something = [1,2,3])
     ado_IsArrayOfConst,     // array of const
     ado_IsConstString,      // string constant
-    ado_IsBitPacked         // bitpacked array
+    ado_IsBitPacked,        // bitpacked array
+    ado_IsVector            // Vector
   );
   tarraydefoptions=set of tarraydefoption;
 

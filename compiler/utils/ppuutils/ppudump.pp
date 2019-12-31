@@ -3215,7 +3215,8 @@ const
     (mask:pio_has_inlininginfo; str:'HasInliningInfo'),
     (mask:pio_inline_not_possible; str:'InlineNotPossible'),
     (mask:pio_nested_access; str:'NestedAccess'),
-    (mask:pio_thunk; str:'Thunk')
+    (mask:pio_thunk; str:'Thunk'),
+    (mask:pio_fastmath; str:'FastMath')
   );
 var
   i: timplprocoption;
@@ -3251,7 +3252,8 @@ const
    { ado_IsConstructor      } 'IsConstructor',
    { ado_IsArrayOfConst     } 'ArrayOfConst',
    { ado_IsConstString      } 'ConstString',
-   { ado_IsBitPacked        } 'BitPacked'
+   { ado_IsBitPacked        } 'BitPacked',
+   { ado_IsVector           } 'Vector'
   );
 var
   symoptions: tarraydefoptions;

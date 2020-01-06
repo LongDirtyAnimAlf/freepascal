@@ -1302,6 +1302,7 @@ unit aoptx86;
                     UpdateUsedRegs(TmpUsedRegs, tai(p.next));
                     if not(RegUsedAfterInstruction(taicpu(p).oper[1]^.reg,hp1,TmpUsedRegs)) then
                       begin
+                        DebugMsg(SPeepholeOptimization + '(V)MOVA*(V)MOVA*2(V)MOVA* 1',p);
                         taicpu(p).loadoper(1,taicpu(hp1).oper[1]^);
                         asml.Remove(hp1);
                         hp1.Free;
@@ -1314,12 +1315,16 @@ unit aoptx86;
                       vmova* reg1,reg2 }
                     else if MatchOperand(taicpu(p).oper[0]^,taicpu(hp1).oper[1]^) then
                       begin
+                        DebugMsg(SPeepholeOptimization + '(V)MOVA*(V)MOVA*2(V)MOVA* 2',p);
                         asml.Remove(hp1);
                         hp1.Free;
                         result:=true;
                       end
                   end
-                else if MatchInstruction(hp1,[A_VFMADDPD,
+            end;
+          if GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[1]^.reg) then
+            begin
+              if MatchInstruction(hp1,[A_VFMADDPD,
                                               A_VFMADD132PD,
                                               A_VFMADD132PS,
                                               A_VFMADD132SD,
@@ -1390,8 +1395,7 @@ unit aoptx86;
                     TransferUsedRegs(TmpUsedRegs);
                     UpdateUsedRegs(TmpUsedRegs, tai(p.next));
                     UpdateUsedRegs(TmpUsedRegs, tai(hp1.next));
-                    if not(RegUsedAfterInstruction(taicpu(p).oper[1]^.reg,hp2,TmpUsedRegs))
-                     then
+                    if not(RegUsedAfterInstruction(taicpu(p).oper[1]^.reg,hp2,TmpUsedRegs)) then
                       begin
                         taicpu(hp1).loadoper(2,taicpu(p).oper[0]^);
                         asml.Remove(p);
@@ -1473,8 +1477,7 @@ unit aoptx86;
           begin
             TransferUsedRegs(TmpUsedRegs);
             UpdateUsedRegs(TmpUsedRegs, tai(p.next));
-            if not(RegUsedAfterInstruction(taicpu(hp1).oper[0]^.reg,hp1,TmpUsedRegs)
-             ) then
+            if not(RegUsedAfterInstruction(taicpu(hp1).oper[0]^.reg,hp1,TmpUsedRegs)) then
               begin
                 taicpu(p).loadoper(2,taicpu(hp1).oper[1]^);
                 DebugMsg(SPeepholeOptimization + 'VOpVmov2VOp done',p);
@@ -2028,12 +2031,10 @@ unit aoptx86;
            MatchOpType(taicpu(p),top_reg,top_reg) and
            ((MatchInstruction(hp1,A_OR,A_AND,A_TEST,[]) and
             MatchOperand(taicpu(p).oper[1]^,taicpu(hp1).oper[0]^) and
-            (taicpu(hp1).oper[1]^.typ = top_reg) and
-            (taicpu(hp1).oper[0]^.reg = taicpu(hp1).oper[1]^.reg)) or
+            MatchOperand(taicpu(p).oper[1]^,taicpu(hp1).oper[1]^)) or
             (MatchInstruction(hp1,A_CMP,[]) and
-            MatchOperand(taicpu(p).oper[1]^,taicpu(hp1).oper[1]^) and
-            MatchOpType(taicpu(hp1),top_const,top_reg) and
-            (taicpu(p).oper[1]^.reg = taicpu(hp1).oper[1]^.reg)
+             MatchOperand(taicpu(p).oper[1]^,taicpu(hp1).oper[1]^) and
+             MatchOpType(taicpu(hp1),top_const,top_reg)
             )
            ) then
            {  we have
@@ -2043,6 +2044,7 @@ unit aoptx86;
            }
            begin
              TransferUsedRegs(TmpUsedRegs);
+             UpdateUsedRegs(TmpUsedRegs, tai(p.next));
              { reg1 will be used after the first instruction,
                so update the allocation info                  }
              AllocRegBetween(taicpu(p).oper[0]^.reg,p,hp1,usedregs);
@@ -2066,9 +2068,7 @@ unit aoptx86;
                      taicpu(hp1).loadoper(0,taicpu(p).oper[0]^);
                    taicpu(hp1).loadoper(1,taicpu(p).oper[0]^);
                    DebugMsg(SPeepholeOptimization + 'MovTest/Cmp/Or/AndJxx2Test/Cmp/Or/AndJxx done',p);
-                   asml.remove(p);
-                   p.free;
-                   p := hp1;
+                   RemoveCurrentP(p);
                    Exit;
                  end
                else
@@ -3226,53 +3226,28 @@ unit aoptx86;
                  exit;
                end;
            end;
-         {
-         @@2:                              @@2:
-           ....                              ....
-           cmp operand1,0
-           jle/jbe @@1
-           dec operand1             -->      sub operand1,1
-           jmp @@2                           jge/jae @@2
-         @@1:                              @@1:
-           ...                               ....}
-         if (taicpu(p).oper[0]^.typ = top_const) and
-            (taicpu(p).oper[1]^.typ in [top_reg,top_ref]) and
-            (taicpu(p).oper[0]^.val = 0) and
-            GetNextInstruction(p, hp1) and
-            MatchInstruction(hp1,A_Jcc,[]) and
-            (taicpu(hp1).condition in [C_LE,C_BE]) and
-            GetNextInstruction(hp1,hp2) and
-            MatchInstruction(hp1,A_DEC,[]) and
-            OpsEqual(taicpu(hp2).oper[0]^,taicpu(p).oper[1]^) and
-            GetNextInstruction(hp2, hp3) and
-            MatchInstruction(hp1,A_JMP,[]) and
-            GetNextInstruction(hp3, hp4) and
-            FindLabel(tasmlabel(taicpu(hp1).oper[0]^.ref^.symbol),hp4) then
-           begin
-             DebugMsg(SPeepholeOptimization + 'CmpJxxDecJmp2SubJcc done',p);
-             taicpu(hp2).Opcode := A_SUB;
-             taicpu(hp2).loadoper(1,taicpu(hp2).oper[0]^);
-             taicpu(hp2).loadConst(0,1);
-             taicpu(hp2).ops:=2;
-             taicpu(hp3).Opcode := A_Jcc;
-             case taicpu(hp1).condition of
-               C_LE: taicpu(hp3).condition := C_GE;
-               C_BE: taicpu(hp3).condition := C_AE;
-               else
-                 internalerror(2019050903);
-             end;
-             asml.remove(p);
-             asml.remove(hp1);
-             p.free;
-             hp1.free;
-             p := hp2;
-             Result:=true;
-             exit;
-           end;
      end;
 
 
    function TX86AsmOptimizer.OptPass2MOV(var p : tai) : boolean;
+
+     function IsXCHGAcceptable: Boolean; inline;
+       begin
+         { Always accept if optimising for size }
+         Result := (cs_opt_size in current_settings.optimizerswitches) or
+           (
+{$ifdef x86_64}
+             { XCHG takes 3 cycles on AMD Athlon64 }
+             (current_settings.optimizecputype >= cpu_core_i)
+{$else x86_64}
+             { From the Pentium M onwards, XCHG only has a latency of 2 rather
+             than 3, so it becomes a saving compared to three MOVs with two of
+             them able to execute simultaneously. [Kit] }
+             (current_settings.optimizecputype >= cpu_PentiumM)
+{$endif x86_64}
+           );
+       end;
+
       var
        hp1,hp2: tai;
 {$ifdef x86_64}
@@ -3351,6 +3326,49 @@ unit aoptx86;
               end;
 
             exit;
+          end
+        else if MatchOpType(taicpu(p),top_reg,top_reg) and
+          IsXCHGAcceptable and
+          { XCHG doesn't support 8-byte registers }
+          (taicpu(p).opsize <> S_B) and
+          MatchInstruction(hp1, A_MOV, []) and
+          MatchOpType(taicpu(hp1),top_reg,top_reg) and
+          (taicpu(hp1).oper[1]^.reg = taicpu(p).oper[0]^.reg) and
+          GetNextInstruction(hp1, hp2) and
+          MatchInstruction(hp2, A_MOV, []) and
+          { Don't need to call MatchOpType for hp2 because the operand matches below cover for it }
+          MatchOperand(taicpu(hp2).oper[0]^, taicpu(p).oper[1]^.reg) and
+          MatchOperand(taicpu(hp2).oper[1]^, taicpu(hp1).oper[0]^.reg) then
+          begin
+            { mov %reg1,%reg2
+              mov %reg3,%reg1        ->  xchg %reg3,%reg1
+              mov %reg2,%reg3
+              (%reg2 not used afterwards)
+
+              Note that xchg takes 3 cycles to execute, and generally mov's take
+              only one cycle apiece, but the first two mov's can be executed in
+              parallel, only taking 2 cycles overall.  Older processors should
+              therefore only optimise for size. [Kit]
+            }
+            TransferUsedRegs(TmpUsedRegs);
+            UpdateUsedRegs(TmpUsedRegs, tai(p.Next));
+            UpdateUsedRegs(TmpUsedRegs, tai(hp1.Next));
+
+            if not RegUsedAfterInstruction(taicpu(p).oper[1]^.reg, hp2, TmpUsedRegs) then
+              begin
+                DebugMsg(SPeepholeOptimization + 'MovMovMov2XChg', p);
+                AllocRegBetween(taicpu(hp2).oper[1]^.reg, p, hp1, UsedRegs);
+                taicpu(hp1).opcode := A_XCHG;
+
+                asml.Remove(p);
+                asml.Remove(hp2);
+                p.Free;
+                hp2.Free;
+
+                p := hp1;
+                Result := True;
+                Exit;
+              end;
           end
         else if MatchOpType(taicpu(p),top_reg,top_reg) and
 {$ifdef x86_64}
@@ -3612,7 +3630,7 @@ unit aoptx86;
       begin
         result:=false;
         if (taicpu(p).oper[0]^.typ=top_ref) and (taicpu(p).oper[0]^.ref^.refaddr=addr_full) and (taicpu(p).oper[0]^.ref^.base=NR_NO) and
-          (taicpu(p).oper[0]^.ref^.index=NR_NO) then
+          (taicpu(p).oper[0]^.ref^.index=NR_NO) and (taicpu(p).oper[0]^.ref^.symbol is tasmlabel) then
           begin
             hp1:=getlabelwithsym(tasmlabel(taicpu(p).oper[0]^.ref^.symbol));
             if (taicpu(p).condition=C_None) and assigned(hp1) and SkipLabels(hp1,hp1) and (hp1.typ = ait_instruction) then

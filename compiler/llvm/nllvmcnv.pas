@@ -66,7 +66,7 @@ implementation
 uses
   globtype,globals,cutils,verbose,
   aasmbase,aasmdata,
-  llvmbase,llvminfo,aasmllvm,aasmllvmmetadata,llvmdef,
+  llvmbase,llvminfo,llvmfeatures,aasmllvm,aasmllvmmetadata,llvmdef,
   procinfo,
   ncal,ncon,
   symconst,symdef,defutil,
@@ -115,9 +115,14 @@ function tllvmtypeconvnode.first_int_to_real: tnode;
     if (llvmflag_constrained_fptoi_itofp in llvmversion_properties[current_settings.llvmversion]) and
        { these are converted to 80 bits first in any case }
        not(tfloatdef(resultdef).floattype in [s64currency,s64comp]) and
+       { no actuual int -> floating point conversion }
+       (torddef(left.resultdef).ordtype<>scurrency) and
        ((left.resultdef.size>=resultdef.size) or
         ((torddef(left.resultdef).ordtype=u64bit) and
-         (tfloatdef(resultdef).floattype=s80real))) then
+         (tfloatdef(resultdef).floattype=s80real))) and
+       (llvm_constrained_si64tofp_support or
+        (torddef(left.resultdef).ordtype<>s64bit) or
+        (tfloatdef(resultdef).floattype<>s64real)) then
       begin
         { in case rounding may have to be applied, use the intrinsic }
         exceptmode:=llvm_constrainedexceptmodestring;

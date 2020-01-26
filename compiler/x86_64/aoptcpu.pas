@@ -35,7 +35,6 @@ type
     function PeepHoleOptPass1Cpu(var p: tai): boolean; override;
     function PeepHoleOptPass2Cpu(var p: tai): boolean; override;
     function PostPeepHoleOptsCpu(var p : tai) : boolean; override;
-    procedure PostPeepHoleOpts; override;
   end;
 
 implementation
@@ -155,6 +154,8 @@ uses
                   Result:=OptPass2Jcc(p);
                 A_Lea:
                   Result:=OptPass2Lea(p);
+                A_SUB:
+                  Result:=OptPass2SUB(p);
                 else
                   ;
               end;
@@ -174,6 +175,8 @@ uses
               case taicpu(p).opcode of
                 A_MOV:
                   Result:=PostPeepholeOptMov(p);
+                A_MOVSX:
+                  Result:=PostPeepholeOptMOVSX(p);
                 A_MOVZX:
                   Result:=PostPeepholeOptMovzx(p);
                 A_CMP:
@@ -190,18 +193,18 @@ uses
                 else
                   ;
               end;
+
+              { Optimise any reference-type operands (if Result is True, the
+                instruction will be checked on the next iteration) }
+              if not Result then
+                OptimizeRefs(taicpu(p));
+
             end;
           else
             ;
         end;
       end;
 
-
-    procedure TCpuAsmOptimizer.PostPeepHoleOpts;
-      begin
-        inherited;
-        OptReferences;
-      end;
 
 begin
   casmoptimizer := TCpuAsmOptimizer;

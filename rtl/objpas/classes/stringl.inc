@@ -1024,7 +1024,7 @@ begin
   inherited Create;
   FDefaultEncoding:=TEncoding.Default;
   FEncoding:=nil;
-  FOptions := [soWriteBOM,soTrailingLineBreak,soUseLocale];
+  FOptions := [soTrailingLineBreak,soUseLocale,soPreserveBOM];
   FAlwaysQuote:=False;
 end;
 
@@ -1502,6 +1502,21 @@ end;
 
 
 
+Procedure TStrings.SaveToFile(const FileName: string; IgnoreEncoding : Boolean);
+
+Var TheStream : TFileStream;
+
+begin
+  TheStream:=TFileStream.Create(FileName,fmCreate);
+  try
+    SaveToStream(TheStream, IgnoreEncoding);
+  finally
+    TheStream.Free;
+  end;
+end;
+
+
+
 Procedure TStrings.SaveToFile(const FileName: string; AEncoding: TEncoding);
 
 Var TheStream : TFileStream;
@@ -1532,7 +1547,7 @@ Var
 begin
   if not IgnoreEncoding then
     begin
-    SaveToStream(Stream,Nil);
+    SaveToStream(Stream,FEncoding);
     Exit;
     end;
   NL:=GetLineBreakCharLBS;

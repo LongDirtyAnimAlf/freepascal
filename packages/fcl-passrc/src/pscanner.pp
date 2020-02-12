@@ -1157,9 +1157,6 @@ const
     );
 
 const
-  AllLanguageModes = [msFPC,msObjFPC,msDelphi,msTP7,msMac,msISO,msExtPas];
-
-const
   MessageTypeNames : Array[TMessageType] of string = (
     'Fatal','Error','Warning','Note','Hint','Info','Debug'
   );
@@ -1167,6 +1164,7 @@ const
 const
   // all mode switches supported by FPC
   msAllModeSwitches = [low(TModeSwitch)..High(TModeSwitch)];
+  AllLanguageModes = [msFPC..msGPC];
 
   DelphiModeSwitches = [msDelphi,msClass,msObjpas,msResult,msStringPchar,
      msPointer2Procedure,msAutoDeref,msTPProcVar,msInitFinal,msDefaultAnsistring,

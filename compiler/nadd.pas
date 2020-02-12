@@ -476,6 +476,18 @@ implementation
         end;
 
 
+      function GetCopyAndTypeCheck: tnode;
+        begin
+          result:=getcopy;
+          result.resultdef:=nil;
+          do_typecheckpass(result);
+          { If the size of the new result after typecheckpass is smaller than
+            the size of the original result, use the original (bigger) size. }
+          if result.resultdef.size < resultdef.size then
+            result.resultdef:=resultdef;
+        end;
+
+
       var
         t       , vl, hp: tnode;
         lt,rt   : tnodetype;
@@ -750,9 +762,7 @@ implementation
                           right:=taddnode(left).right;
                           taddnode(left).right:=hp;
                           left:=left.simplify(false);
-                          result:=getcopy;
-                          result.resultdef:=nil;
-                          do_typecheckpass(result);
+                          result:=GetCopyAndTypeCheck;
                         end;
                       else
                         ;
@@ -771,9 +781,7 @@ implementation
                           right:=taddnode(left).left;
                           taddnode(left).left:=hp;
                           left:=left.simplify(false);
-                          result:=getcopy;
-                          result.resultdef:=nil;
-                          do_typecheckpass(result);
+                          result:=GetCopyAndTypeCheck;
                         end;
                       else
                         ;
@@ -842,9 +850,7 @@ implementation
                           left:=taddnode(right).right;
                           taddnode(right).right:=hp;
                           right:=right.simplify(false);
-                          result:=getcopy;
-                          result.resultdef:=nil;
-                          do_typecheckpass(result);
+                          result:=GetCopyAndTypeCheck;
                         end;
                       else
                         ;
@@ -863,9 +869,7 @@ implementation
                           left:=taddnode(right).left;
                           taddnode(right).left:=hp;
                           right:=right.simplify(false);
-                          result:=getcopy;
-                          result.resultdef:=nil;
-                          do_typecheckpass(result);
+                          result:=GetCopyAndTypeCheck;
                         end;
                       else
                         ;
@@ -1148,7 +1152,7 @@ implementation
           containing constants }
         if is_boolean(left.resultdef) and is_boolean(right.resultdef) then
           begin
-            if is_constboolnode(left) and not(might_have_sideeffects(right)) then
+            if is_constboolnode(left) then
               begin
                 if ((nodetype=andn) and (tordconstnode(left).value<>0)) or
                   ((nodetype=orn) and (tordconstnode(left).value=0)) or
@@ -1158,8 +1162,9 @@ implementation
                     right:=nil;
                     exit;
                   end
-                else if ((nodetype=orn) and (tordconstnode(left).value<>0)) or
-                  ((nodetype=andn) and (tordconstnode(left).value=0)) then
+                else if not(might_have_sideeffects(right)) and
+                  (((nodetype=orn) and (tordconstnode(left).value<>0)) or
+                  ((nodetype=andn) and (tordconstnode(left).value=0))) then
                   begin
                     result:=left;
                     left:=nil;
@@ -1172,7 +1177,7 @@ implementation
                     exit;
                   end
               end
-            else if is_constboolnode(right) and not(might_have_sideeffects(left)) then
+            else if is_constboolnode(right) then
               begin
                 if ((nodetype=andn) and (tordconstnode(right).value<>0)) or
                   ((nodetype=orn) and (tordconstnode(right).value=0)) or
@@ -1182,8 +1187,9 @@ implementation
                     left:=nil;
                     exit;
                   end
-                else if ((nodetype=orn) and (tordconstnode(right).value<>0)) or
-                  ((nodetype=andn) and (tordconstnode(right).value=0)) then
+                else if not(might_have_sideeffects(left)) and
+                  (((nodetype=orn) and (tordconstnode(right).value<>0)) or
+                   ((nodetype=andn) and (tordconstnode(right).value=0))) then
                   begin
                     result:=right;
                     right:=nil;

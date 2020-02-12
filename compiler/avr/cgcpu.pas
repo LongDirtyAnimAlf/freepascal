@@ -2225,19 +2225,24 @@ unit cgcpu;
               regs:=regs+[RS_R28,RS_R29];
 
             { we clear r1 }
-            include(regs,RS_R1);
+            include(regs,getsupreg(GetDefaultZeroReg));
 
-            regs:=regs+[RS_R0];
+            regs:=regs+[getsupreg(GetDefaultTmpReg)];
 
-            for reg:=RS_R31 downto RS_R0 do
-              if reg in regs then
-                list.concat(taicpu.op_reg(A_PUSH,newreg(R_INTREGISTER,reg,R_SUBWHOLE)));
+            if current_settings.cputype=cpu_avr1 then
+              message1(cg_w_interrupt_does_not_save_registers,current_procinfo.procdef.fullprocname(false))
+            else
+              begin
+                for reg:=RS_R31 downto RS_R0 do
+                  if reg in regs then
+                    list.concat(taicpu.op_reg(A_PUSH,newreg(R_INTREGISTER,reg,R_SUBWHOLE)));
+                { Save SREG }
+                cg.getcpuregister(list,GetDefaultTmpReg);
+                list.concat(taicpu.op_reg_const(A_IN, GetDefaultTmpReg, $3F));
+                list.concat(taicpu.op_reg(A_PUSH, GetDefaultTmpReg));
+                cg.ungetcpuregister(list,GetDefaultTmpReg);
+              end;
 
-            { Save SREG }
-            cg.getcpuregister(list,GetDefaultTmpReg);
-            list.concat(taicpu.op_reg_const(A_IN, GetDefaultTmpReg, $3F));
-            list.concat(taicpu.op_reg(A_PUSH, GetDefaultTmpReg));
-            cg.ungetcpuregister(list,GetDefaultTmpReg);
 
             list.concat(taicpu.op_reg(A_CLR,GetDefaultZeroReg));
 
@@ -2313,19 +2318,23 @@ unit cgcpu;
                   end;
 
                 { we clear r1 }
-                include(regs,RS_R1);
+                include(regs,getsupreg(GetDefaultZeroReg));
 
-                { Reload SREG }
-                regs:=regs+[getsupreg(GetDefaultTmpReg)];
+                if current_settings.cputype<>cpu_avr1 then
+                  begin
+                    { Reload SREG }
+                    regs:=regs+[getsupreg(GetDefaultTmpReg)];
 
-                cg.getcpuregister(list,GetDefaultTmpReg);
-                list.concat(taicpu.op_reg(A_POP, GetDefaultTmpReg));
-                list.concat(taicpu.op_const_reg(A_OUT, $3F, GetDefaultTmpReg));
-                cg.ungetcpuregister(list,GetDefaultTmpReg);
 
-                for reg:=RS_R0 to RS_R31 do
-                  if reg in regs then
-                    list.concat(taicpu.op_reg(A_POP,newreg(R_INTREGISTER,reg,R_SUBWHOLE)));
+                    cg.getcpuregister(list,GetDefaultTmpReg);
+                    list.concat(taicpu.op_reg(A_POP, GetDefaultTmpReg));
+                    list.concat(taicpu.op_const_reg(A_OUT, $3F, GetDefaultTmpReg));
+                    cg.ungetcpuregister(list,GetDefaultTmpReg);
+
+                    for reg:=RS_R0 to RS_R31 do
+                      if reg in regs then
+                        list.concat(taicpu.op_reg(A_POP,newreg(R_INTREGISTER,reg,R_SUBWHOLE)));
+                  end;
               end;
             list.concat(taicpu.op_none(A_RETI));
           end
@@ -2520,7 +2529,8 @@ unit cgcpu;
           begin
             SrcQuickRef:=false;
             DestQuickRef:=false;
-            if (CPUAVR_16_REGS in cpu_capabilities[current_settings.cputype]) or
+            if ((CPUAVR_16_REGS in cpu_capabilities[current_settings.cputype]) and
+              not((source.Base=NR_NO) and (source.Index=NR_NO) and (source.symbol=nil) and (source.Offset in [0..192-len]))) or
               (
                  not((source.addressmode=AM_UNCHANGED) and
                      (source.symbol=nil) and
@@ -2541,7 +2551,8 @@ unit cgcpu;
                 srcref:=source;
               end;
 
-            if (CPUAVR_16_REGS in cpu_capabilities[current_settings.cputype]) or
+            if ((CPUAVR_16_REGS in cpu_capabilities[current_settings.cputype]) and
+              not((dest.Base=NR_NO) and (dest.Index=NR_NO) and (dest.symbol=nil) and (dest.Offset in [0..192-len]))) or
               (
                  not((dest.addressmode=AM_UNCHANGED) and
                    (dest.symbol=nil) and

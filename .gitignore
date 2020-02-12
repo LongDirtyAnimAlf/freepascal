@@ -4,6 +4,7 @@
 *.pcp
 *.o
 *.s
+!/rtl/embedded/*/*.s
 *.fpm
 *.a
 *.hex

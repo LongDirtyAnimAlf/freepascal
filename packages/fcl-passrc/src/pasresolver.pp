@@ -1736,7 +1736,7 @@ type
     procedure CheckIsClass(El: TPasElement; const ResolvedEl: TPasResolverResult);
     function CheckTypeCastClassInstanceToClass(
       const FromClassRes, ToClassRes: TPasResolverResult;
-      ErrorEl: TPasElement): integer; virtual;
+      ErrorEl: TPasElement): integer; virtual; // type cast not related classes
     procedure CheckSetLitElCompatible(Left, Right: TPasExpr;
       const LHS, RHS: TPasResolverResult);
     function CheckIsOrdinal(const ResolvedEl: TPasResolverResult;
@@ -2152,6 +2152,8 @@ type
       out GotDesc, ExpDesc: String); overload;
     procedure GetIncompatibleTypeDesc(const GotType, ExpType: TPasType;
       out GotDesc, ExpDesc: String); overload;
+    procedure GetIncompatibleProcParamsDesc(GotType, ExpType: TPasProcedureType;
+      out GotDesc, ExpDesc: string);
     procedure RaiseMsg(const Id: TMaxPrecInt; MsgNumber: integer; const Fmt: String;
       Args: Array of {$ifdef pas2js}jsvalue{$else}const{$endif};
       ErrorPosEl: TPasElement); virtual;
@@ -2226,6 +2228,7 @@ type
       const ResolvedSrcType, ResolvedDestType: TPasResolverResult): integer;
     function CheckClassIsClass(SrcType, DestType: TPasType): integer; virtual;
     function CheckClassesAreRelated(TypeA, TypeB: TPasType): integer;
+    function CheckAssignCompatibilityClasses(LType, RType: TPasClassType): integer; virtual; // not related classes
     function GetClassImplementsIntf(ClassEl, Intf: TPasClassType): TPasClassType;
     function CheckProcOverloadCompatibility(Proc1, Proc2: TPasProcedure): boolean;
     function CheckProcTypeCompatibility(Proc1, Proc2: TPasProcedureType;
@@ -10378,6 +10381,7 @@ begin
       Include(LeftResolved.Flags,rrfWritable);
       end;
 
+    //writeln('TPasResolver.ResolveSubIdent ',GetObjPath(El),' ',GetObjPath(LLoTypeEl));
     if LLoTypeEl.ClassType=TPasClassType then
       begin
       ClassEl:=TPasClassType(LLoTypeEl);
@@ -20556,10 +20560,15 @@ begin
       NeedPop:=true;
       if CurScopeEl is TPasType then
         begin
+        if (CurScopeEl is TPasGenericType)
+            and not IsFullySpecialized(TPasGenericType(CurScopeEl)) then
+          RaiseMsg(20200217131215,nGenericsWithoutSpecializationAsType,
+            sGenericsWithoutSpecializationAsType,['reference'],ErrorEl);
         CurScope:=PushDotScope(TPasType(CurScopeEl));
         if CurScope=nil then
           RaiseMsg(20190122122529,nIllegalQualifierAfter,sIllegalQualifierAfter,
             ['.',LeftPath],ErrorEl);
+        CurScope.OnlyTypeMembers:=true;
         end
       else if CurScopeEl is TPasModule then
         PushModuleDotScope(TPasModule(CurScopeEl))
@@ -20884,7 +20893,7 @@ begin
         Include(Ref.Flags,rrfConstInherited);
       end;
     end
-  else if StartScope.ClassType=ScopeClass_WithExpr then
+  else if StartScope.ClassType=FScopeClass_WithExpr then
     begin
     OnlyTypeMembers:=wesfOnlyTypeMembers in TPasWithExprScope(StartScope).Flags;
     IsClassOf:=wesfIsClassOf in TPasWithExprScope(StartScope).Flags;
@@ -22604,16 +22613,10 @@ procedure TPasResolver.RaiseIncompatibleType(id: TMaxPrecInt; MsgNumber: integer
   const Args: array of {$ifdef pas2js}jsvalue{$else}const{$endif};
   GotType, ExpType: TPasType; ErrorEl: TPasElement);
 var
-  DescA, DescB: String;
+  GotDesc, ExpDesc: String;
 begin
-  DescA:=GetTypeDescription(GotType);
-  DescB:=GetTypeDescription(ExpType);
-  if DescA=DescB then
-    begin
-    DescA:=GetTypeDescription(GotType,true);
-    DescB:=GetTypeDescription(ExpType,true);
-    end;
-  RaiseIncompatibleTypeDesc(id,MsgNumber,Args,DescA,DescB,ErrorEl);
+  GetIncompatibleTypeDesc(GotType,ExpType,GotDesc,ExpDesc);
+  RaiseIncompatibleTypeDesc(id,MsgNumber,Args,GotDesc,ExpDesc,ErrorEl);
 end;
 
 procedure TPasResolver.RaiseIncompatibleTypeRes(id: TMaxPrecInt; MsgNumber: integer;
@@ -22775,22 +22778,32 @@ begin
       ExpDesc:=BaseTypeNames[btPointer]
     else
       ExpDesc:=GetBaseDescription(ExpType);
-    if GotDesc=ExpDesc then
-      begin
-      GotDesc:=GetBaseDescription(GotType,true);
-      ExpDesc:=GetBaseDescription(ExpType,true);
-      end;
+    if GotDesc<>ExpDesc then
+      exit;
+    GotDesc:=GetBaseDescription(GotType,true);
+    ExpDesc:=GetBaseDescription(ExpType,true);
     end
   else if (GotType.LoTypeEl<>nil) and (ExpType.LoTypeEl<>nil) then
     begin
+    if (GotType.LoTypeEl.ClassType=ExpType.LoTypeEl.ClassType)
+        and (GotType.LoTypeEl is TPasProcedureType) then
+      begin
+      // procedural types
+      GetIncompatibleProcParamsDesc(TPasProcedureType(GotType.LoTypeEl),
+        TPasProcedureType(ExpType.LoTypeEl),GotDesc,ExpDesc);
+      if GotDesc<>ExpDesc then
+        exit;
+      end;
     GotDesc:=GetTypeDescription(GotType);
     ExpDesc:=GetTypeDescription(ExpType);
-    if GotDesc<>ExpDesc then exit;
+    if GotDesc<>ExpDesc then
+      exit;
     if GotType.HiTypeEl<>ExpType.HiTypeEl then
       begin
       GotDesc:=GetTypeDescription(GotType.HiTypeEl);
       ExpDesc:=GetTypeDescription(ExpType.HiTypeEl);
-      if GotDesc<>ExpDesc then exit;
+      if GotDesc<>ExpDesc then
+        exit;
       end;
     GotDesc:=GetTypeDescription(GotType,true);
     ExpDesc:=GetTypeDescription(ExpType,true);
@@ -22799,22 +22812,145 @@ begin
     begin
     GotDesc:=GetResolverResultDescription(GotType,true);
     ExpDesc:=GetResolverResultDescription(ExpType,true);
-    if GotDesc=ExpDesc then
-      begin
-      GotDesc:=GetResolverResultDescription(GotType,false);
-      ExpDesc:=GetResolverResultDescription(ExpType,false);
-      end;
+    if GotDesc<>ExpDesc then
+      exit;
+    GotDesc:=GetResolverResultDescription(GotType,false);
+    ExpDesc:=GetResolverResultDescription(ExpType,false);
     end;
 end;
 
 procedure TPasResolver.GetIncompatibleTypeDesc(const GotType,
   ExpType: TPasType; out GotDesc, ExpDesc: String);
+var
+  GotLoType, ExpLoType: TPasType;
 begin
+  GotLoType:=ResolveAliasType(GotType);
+  ExpLoType:=ResolveAliasType(ExpType);
+  if (GotLoType<>nil) and (ExpLoType<>nil) then
+    begin
+    if (GotLoType.ClassType=ExpLoType.ClassType)
+        and (GotLoType is TPasProcedureType) then
+      begin
+      // procedural types
+      GetIncompatibleProcParamsDesc(TPasProcedureType(GotLoType),
+        TPasProcedureType(ExpLoType),GotDesc,ExpDesc);
+      if GotDesc<>ExpDesc then
+        exit;
+      end;
+    end;
   GotDesc:=GetTypeDescription(GotType);
   ExpDesc:=GetTypeDescription(ExpType);
   if GotDesc<>ExpDesc then exit;
   GotDesc:=GetTypeDescription(GotType,true);
   ExpDesc:=GetTypeDescription(ExpType,true);
+end;
+
+procedure TPasResolver.GetIncompatibleProcParamsDesc(GotType,
+  ExpType: TPasProcedureType; out GotDesc, ExpDesc: string);
+
+  procedure AppendClass(ProcType: TPasProcedureType; var Desc: string);
+  var
+    C: TClass;
+  begin
+    C:=ProcType.ClassType;
+    if C=TPasProcedureType then
+      Desc:=Desc+'procedure'
+    else if C=TPasFunctionType then
+      Desc:=Desc+'function'
+    else
+      RaiseNotYetImplemented(20200216114419,ProcType,ProcType.ClassName);
+  end;
+
+var
+  i: Integer;
+  GotArg, ExpArg: TPasArgument;
+  GotArgs, ExpArgs: TFPList;
+  GotArgDesc, ExpArgDesc: String;
+  GotArgType, ExpArgType: TPasType;
+begin
+  GotDesc:='';
+  ExpDesc:='';
+  // reference to
+  if (ptmReferenceTo in GotType.Modifiers) and not (ptmReferenceTo in ExpType.Modifiers) then
+    GotDesc:='reference to '
+  else if not (ptmReferenceTo in GotType.Modifiers) and (ptmReferenceTo in ExpType.Modifiers) then
+    ExpDesc:='reference to ';
+
+  // type
+  AppendClass(GotType,GotDesc);
+  AppendClass(ExpType,ExpDesc);
+
+  // Args
+  GotDesc:=GotDesc+'(';
+  ExpDesc:=ExpDesc+'(';
+  GotArgs:=GotType.Args;
+  ExpArgs:=ExpType.Args;
+  for i:=0 to GotArgs.Count-1 do
+    begin
+    if i>0 then
+      GotDesc:=GotDesc+';';
+    GotArg:=TPasArgument(GotArgs[i]);
+    GotArgType:=ResolveAliasType(GotArg.ArgType);
+    if i<ExpArgs.Count then
+      begin
+      if i>0 then
+        ExpDesc:=ExpDesc+';';
+      ExpArg:=TPasArgument(ExpArgs[i]);
+      ExpArgType:=ResolveAliasType(ExpArg.ArgType);
+      if GotArgType=ExpArgType then
+        begin
+        GotDesc:=GotDesc+GetTypeDescription(GotArgType);
+        ExpDesc:=ExpDesc+GetTypeDescription(ExpArgType);
+        end
+      else
+        begin
+        GetIncompatibleTypeDesc(GotArgType,ExpArgType,GotArgDesc,ExpArgDesc);
+        GotDesc:=GotDesc+GotArgDesc;
+        ExpDesc:=ExpDesc+ExpArgDesc;
+        end;
+      end
+    else
+      begin
+      // GotType has more args than ExpType
+      GotDesc:=GotDesc+GetTypeDescription(GotArgType);
+      end;
+    end;
+  for i:=GotArgs.Count to ExpArgs.Count-1 do
+    begin
+    // ExpType has more args then GotType
+    if i>0 then
+      ExpDesc:=ExpDesc+';';
+    ExpArg:=TPasArgument(ExpArgs[i]);
+    ExpArgType:=ResolveAliasType(ExpArg.ArgType);
+    ExpDesc:=ExpDesc+GetTypeDescription(ExpArgType);
+    end;
+  GotDesc:=GotDesc+')';
+  ExpDesc:=ExpDesc+')';
+
+  // modifiers
+  if (ptmOfObject in GotType.Modifiers) and not (ptmOfObject in ExpType.Modifiers) then
+    GotDesc:=GotDesc+' of Object'
+  else if not (ptmOfObject in GotType.Modifiers) and (ptmOfObject in ExpType.Modifiers) then
+    ExpDesc:=ExpDesc+' of Object';
+  if (ptmIsNested in GotType.Modifiers) and not (ptmIsNested in ExpType.Modifiers) then
+    GotDesc:=GotDesc+' is nested'
+  else if not (ptmIsNested in GotType.Modifiers) and (ptmIsNested in ExpType.Modifiers) then
+    ExpDesc:=ExpDesc+' is nested';
+  if (ptmStatic in GotType.Modifiers) and not (ptmStatic in ExpType.Modifiers) then
+    GotDesc:=GotDesc+'; static'
+  else if not (ptmStatic in GotType.Modifiers) and (ptmStatic in ExpType.Modifiers) then
+    ExpDesc:=ExpDesc+'; static';
+  if (ptmVarargs in GotType.Modifiers) and not (ptmVarargs in ExpType.Modifiers) then
+    GotDesc:=GotDesc+'; varargs'
+  else if not (ptmVarargs in GotType.Modifiers) and (ptmVarargs in ExpType.Modifiers) then
+    ExpDesc:=ExpDesc+'; varargs';
+
+  // calling convention
+  if GotType.CallingConvention<>ExpType.CallingConvention then
+    begin
+    GotDesc:=GotDesc+';'+cCallingConventions[GotType.CallingConvention];
+    ExpDesc:=ExpDesc+';'+cCallingConventions[ExpType.CallingConvention];
+    end;
 end;
 
 function TPasResolver.CheckCallProcCompatibility(ProcType: TPasProcedureType;
@@ -23254,8 +23390,9 @@ var
   C: TClass;
   Arr1, Arr2: TPasArrayType;
   TemplType1, TemplType2: TPasGenericTemplateType;
-  Templates1, Templates2: TFPList;
+  Templates1, Templates2, ProcArgs1, ProcArgs2: TFPList;
   i: Integer;
+  Proc1, Proc2: TPasProcedureType;
 begin
   if Arg1=Arg2 then exit(cExact);
   ComputeElement(Arg1,Arg1Resolved,[rcType]);
@@ -23303,6 +23440,7 @@ begin
     if IsSameType(Arg1Resolved.LoTypeEl,Arg2Resolved.LoTypeEl,prraNone) then
       exit(cExact);
     end;
+
   if Arg1Resolved.BaseType=btContext then
     begin
     C:=Arg1Resolved.LoTypeEl.ClassType;
@@ -23318,6 +23456,33 @@ begin
         RaiseNotYetImplemented(20170328093733,Arr1.Ranges[0],'anonymous static array');
       Result:=CheckElTypeCompatibility(GetArrayElType(Arr1),GetArrayElType(Arr2),ResolveAlias);
       exit;
+      end
+    else if (C.InheritsFrom(TPasProcedureType))
+        and not (msDelphi in CurrentParser.CurrentModeswitches) then
+      begin
+      // FPC checks proc types arguments by signature, Delphi checks by type
+      Proc1:=TPasProcedureType(Arg1Resolved.LoTypeEl);
+      Proc2:=TPasProcedureType(Arg2Resolved.LoTypeEl);
+      if Proc1.CallingConvention<>Proc2.CallingConvention then
+        exit(cIncompatible);
+      if Proc1.Modifiers<>Proc2.Modifiers then
+        exit(cIncompatible);
+      if Proc1.VarArgsType<>Proc2.VarArgsType then
+        begin
+        Result:=CheckElTypeCompatibility(Proc1.VarArgsType,Proc2.VarArgsType,ResolveAlias);
+        if Result=cIncompatible then exit;
+        end;
+      ProcArgs1:=Proc1.Args;
+      ProcArgs2:=Proc2.Args;
+      if ProcArgs1.Count<>ProcArgs2.Count then
+        exit(cIncompatible);
+      for i:=0 to ProcArgs1.Count-1 do
+        begin
+        Result:=CheckProcArgCompatibility(TPasArgument(ProcArgs1[i]),TPasArgument(ProcArgs2[i]));
+        if Result>cGenericExact then
+          exit(cIncompatible);
+        end;
+      exit(cExact);
       end;
     end;
 
@@ -25283,6 +25448,7 @@ var
   LArray, RArray: TPasArrayType;
   GotDesc, ExpDesc: String;
   CurTVarRec: TPasRecordType;
+  LeftClass, RightClass: TPasClassType;
 
   function RaiseIncompatType(Id: TMaxPrecInt): integer;
   begin
@@ -25316,18 +25482,22 @@ begin
       Result:=cIncompatible;
       if not (rrfReadable in RHS.Flags) then
         exit(RaiseIncompatType(20190215112914));
-      if TPasClassType(LTypeEl).ObjKind=TPasClassType(RTypeEl).ObjKind then
+      LeftClass:=TPasClassType(LTypeEl);
+      RightClass:=TPasClassType(RTypeEl);
+      if LeftClass.ObjKind=RightClass.ObjKind then
         Result:=CheckSrcIsADstType(RHS,LHS)
-      else if TPasClassType(LTypeEl).ObjKind=okInterface then
+      else if LeftClass.ObjKind=okInterface then
         begin
-        if (TPasClassType(RTypeEl).ObjKind=okClass)
-            and (not TPasClassType(RTypeEl).IsExternal) then
+        if (RightClass.ObjKind=okClass)
+            and (not RightClass.IsExternal) then
           begin
           // IntfVar:=ClassInstVar
-          if GetClassImplementsIntf(TPasClassType(RTypeEl),TPasClassType(LTypeEl))<>nil then
+          if GetClassImplementsIntf(RightClass,LeftClass)<>nil then
             exit(cTypeConversion);
           end;
         end;
+      if Result=cIncompatible then
+        Result:=CheckAssignCompatibilityClasses(LeftClass,RightClass);
       if (Result=cIncompatible) and RaiseOnIncompatible then
         RaiseIncompatibleType(20170216152458,nIncompatibleTypesGotExpected,
           [],RTypeEl,LTypeEl,ErrorEl);
@@ -28854,6 +29024,14 @@ begin
   Result:=CheckClassIsClass(TypeA,TypeB);
   if Result<>cIncompatible then exit;
   Result:=CheckClassIsClass(TypeB,TypeA);
+end;
+
+function TPasResolver.CheckAssignCompatibilityClasses(LType,
+  RType: TPasClassType): integer;
+begin
+  Result:=cIncompatible;
+  if LType=nil then ;
+  if RType=nil then ;
 end;
 
 function TPasResolver.GetClassImplementsIntf(ClassEl, Intf: TPasClassType

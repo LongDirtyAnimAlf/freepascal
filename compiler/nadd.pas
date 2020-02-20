@@ -481,10 +481,6 @@ implementation
           result:=getcopy;
           result.resultdef:=nil;
           do_typecheckpass(result);
-          { If the size of the new result after typecheckpass is smaller than
-            the size of the original result, use the original (bigger) size. }
-          if result.resultdef.size < resultdef.size then
-            result.resultdef:=resultdef;
         end;
 
 
@@ -705,7 +701,7 @@ implementation
           end;
 
         { Add,Sub,Mul,Or,Xor,Andn with constant 0, 1 or -1?  }
-        if is_constintnode(right) and is_integer(left.resultdef) then
+        if is_constintnode(right) and (is_integer(left.resultdef) or is_pointer(left.resultdef)) then
           begin
             if tordconstnode(right).value = 0 then
               begin
@@ -741,13 +737,16 @@ implementation
                 end;
               end
             { try to fold
-                          op
-                         /  \
-                       op  const1
-                      /  \
-                  const2 val
+                          op                         op
+                         /  \                       /  \
+                       op  const1       or        op  const1
+                      /  \                       /  \
+                  const2 val                   val const2
             }
-            else if left.nodetype=nodetype then
+            else if (left.nodetype=nodetype) and
+              { there might be a mul operation e.g. longint*longint => int64 in this case
+                we cannot do this optimziation, see e.g. tests/webtbs/tw36587.pp on arm }
+              (compare_defs(resultdef,left.resultdef,nothingn)=te_exact) then
               begin
                 if is_constintnode(taddnode(left).left) then
                   begin
@@ -777,10 +776,12 @@ implementation
                       orn,
                       muln:
                         begin
-                          hp:=right;
-                          right:=taddnode(left).left;
-                          taddnode(left).left:=hp;
+                          { keep the order of val+const else pointer operations might cause an error }
+                          hp:=taddnode(left).left;
+                          taddnode(left).left:=right;
                           left:=left.simplify(false);
+                          right:=left;
+                          left:=hp;
                           result:=GetCopyAndTypeCheck;
                         end;
                       else
@@ -791,7 +792,7 @@ implementation
             if assigned(result) then
               exit;
           end;
-        if is_constintnode(left) and is_integer(right.resultdef) then
+        if is_constintnode(left) and (is_integer(right.resultdef) or is_pointer(right.resultdef)) then
           begin
             if tordconstnode(left).value = 0 then
               begin
@@ -835,7 +836,10 @@ implementation
                             /  \
                         const2 val
             }
-            else if right.nodetype=nodetype then
+            else if (right.nodetype=nodetype) and
+              { there might be a mul operation e.g. longint*longint => int64 in this case
+                we cannot do this optimziation, see e.g. tests/webtbs/tw36587.pp on arm }
+              (compare_defs(resultdef,right.resultdef,nothingn)=te_exact)  then
               begin
                 if is_constintnode(taddnode(right).left) then
                   begin
@@ -3901,6 +3905,10 @@ implementation
                  ((right.nodetype = ordconstn) and
                   ispowerof2(tordconstnode(right).value,i2))) then
                begin
+                 { it could be that we are converting a 32x32 -> 64 multiplication:
+                   in this case, we have to restore the type conversion }
+                 inserttypeconv_internal(left,resultdef);
+                 inserttypeconv_internal(right,resultdef);
                  if ((left.nodetype = ordconstn) and
                      ispowerof2(tordconstnode(left).value,i)) then
                    begin

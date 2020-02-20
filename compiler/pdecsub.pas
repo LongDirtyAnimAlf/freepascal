@@ -835,6 +835,11 @@ implementation
                     messagepos1(decltype.fileinfo,sym_e_generic_type_param_decl,decltype.realname);
                     result:=false;
                   end;
+                if df_genconstraint in impltype.typedef.defoptions then
+                  begin
+                    messagepos(tstoreddef(impltype.typedef).genconstraintdata.fileinfo,parser_e_generic_constraints_not_allowed_here);
+                    result:=false;
+                  end;
               end;
           end;
 

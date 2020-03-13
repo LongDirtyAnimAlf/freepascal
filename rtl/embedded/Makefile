@@ -2951,3 +2951,5 @@ intrinsics$(PPUEXT) : $(PROCINC)/intrinsics.pp $(SYSTEMUNIT)$(PPUEXT)
 	$(COMPILER) $(PROCINC)/intrinsics.pp
 sortbase$(PPUEXT) : $(INC)/sortbase.pp objpas$(PPUEXT) $(SYSTEMUNIT)$(PPUEXT)
 	$(COMPILER) $(INC)/sortbase.pp
+avrsim$(PPUEXT): $(ARCH)/avrsim.pp heapmgr$(PPUEXT) consoleio$(PPUEXT) $(SYSTEMUNIT)$(PPUEXT)
+	$(COMPILER) $(ARCH)/avrsim.pp

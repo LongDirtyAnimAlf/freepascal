@@ -227,8 +227,12 @@ begin
     end;                     
   If Result then begin
     if RelativeKey(Key) then
-      S:=CurrentPath + Key
-    else
+        begin
+          if (Key>'') and (CurrentPath>'') and (CurrentPath[Length(CurrentPath)]<>'\') then
+            S:=CurrentPath + '\' + Key
+          else
+            S:=CurrentPath + Key;
+        end  else
       S:=u;
     ChangeKey(Handle, S);
   end;
@@ -325,7 +329,7 @@ procedure TRegistry.ChangeKey(Value: HKey; const Path: UnicodeString);
 begin
   CloseKey;
   FCurrentKey:=Value;
-  FCurrentPath:=Path;
+  FCurrentPath:=FixPath(Path);
 end;
 
 
@@ -341,7 +345,7 @@ var
 
 begin
   Result:=nil;
-  if GetKeyInfo(Info) then
+  if GetKeyInfo(Info) and (Info.NumSubKeys > 0) then
   begin
     dwLen:=Info.MaxSubKeyLen+1;
     GetMem(lpName,dwLen*SizeOf(WideChar));
@@ -352,6 +356,8 @@ begin
       begin
         dwLen:=Info.MaxSubKeyLen+1;
         lResult:=RegEnumKeyExW(CurrentKey,dwIndex,lpName,dwLen,Nil,Nil,Nil,Nil);
+        if lResult=ERROR_NO_MORE_ITEMS then
+          Break;
         if lResult<>ERROR_SUCCESS then
           raise ERegistryException.Create(SysErrorMessage(lResult));
         if dwLen=0 then
@@ -381,7 +387,7 @@ var
 
 begin
   Result:=nil;
-  if GetKeyInfo(Info) then
+  if GetKeyInfo(Info) and (Info.NumValues > 0) then
   begin
     dwLen:=Info.MaxValueLen+1;
     GetMem(lpName,dwLen*SizeOf(WideChar));
@@ -391,6 +397,8 @@ begin
       begin
         dwLen:=Info.MaxValueLen+1;
         lResult:=RegEnumValueW(CurrentKey,dwIndex,lpName,dwLen,Nil,Nil,Nil,Nil);
+        if lResult=ERROR_NO_MORE_ITEMS then
+          Break;
         if lResult<>ERROR_SUCCESS then
           raise ERegistryException.Create(SysErrorMessage(lResult));
         if dwLen=0 then
@@ -415,8 +423,6 @@ Function TRegistry.SysPutData(const Name: UnicodeString; Buffer: Pointer;
 
 Var
   RegDataType: DWORD;
-  B : Pchar;
-  S : String;
 
 begin
   RegDataType:=RegDataWords[RegData];

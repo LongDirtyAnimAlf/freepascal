@@ -150,14 +150,16 @@ begin
 {$ifdef arm}
   { some newer Debian have the crt*.o files at uncommon locations,
     for other arm flavours, this cannot hurt }
-{$ifdef FPC_ARMHF}
-      LibrarySearchPath.AddLibraryPath(sysrootpath,'=/usr/lib/arm-linux-gnueabihf',true);
-      LibrarySearchPath.AddLibraryPath(sysrootpath,'=/lib/arm-linux-gnueabihf',true);
-{$endif FPC_ARMHF}
-{$ifdef FPC_ARMEL}
-      LibrarySearchPath.AddLibraryPath(sysrootpath,'=/usr/lib/arm-linux-gnueabi',true);
-      LibrarySearchPath.AddLibraryPath(sysrootpath,'=/lib/arm-linux-gnueabi',true);
-{$endif}
+    if target_info.abi=abi_eabihf then
+      begin
+        LibrarySearchPath.AddLibraryPath(sysrootpath,'=/usr/lib/arm-linux-gnueabihf',true);
+        LibrarySearchPath.AddLibraryPath(sysrootpath,'=/lib/arm-linux-gnueabihf',true);
+      end;
+    if target_info.abi=abi_eabi then
+      begin
+        LibrarySearchPath.AddLibraryPath(sysrootpath,'=/usr/lib/arm-linux-gnueabi',true);
+        LibrarySearchPath.AddLibraryPath(sysrootpath,'=/lib/arm-linux-gnueabi',true);
+      end;
 {$endif arm}
 {$ifdef x86_64}
       LibrarySearchPath.AddLibraryPath(sysrootpath,'=/usr/lib/x86_64-linux-gnu',true);
@@ -253,9 +255,14 @@ const defdynlinker='/lib/ld-linux-aarch64.so.1';
 {$ifdef riscv32}
   const defdynlinker='/lib32/ld.so.1';
 {$endif riscv32}
+
 {$ifdef riscv64}
   const defdynlinker='/lib/ld-linux-riscv64-lp64d.so.1';
 {$endif riscv64}
+
+{$ifdef xtensa}
+  const defdynlinker='/lib/ld.so.1';
+{$endif xtensa}
 
 
 procedure SetupDynlinker(out DynamicLinker:string;out libctype:TLibcType);
@@ -363,6 +370,7 @@ const
 {$endif}
 {$ifdef riscv32}   platform_select='-m elf32lriscv';{$endif}
 {$ifdef riscv64}   platform_select='-m elf64lriscv';{$endif}
+{$ifdef xtensa}    platform_select='';{$endif}
 
 var
   platformopt: string;
@@ -2029,5 +2037,11 @@ initialization
   RegisterExport(system_riscv64_linux,texportliblinux);
   RegisterTarget(system_riscv64_linux_info);
 {$endif riscv64}
+{$ifdef xtensa}
+  RegisterImport(system_xtensa_linux,timportliblinux);
+  RegisterExport(system_xtensa_linux,texportliblinux);
+  RegisterTarget(system_xtensa_linux_info);
+{$endif xtensa}
   RegisterRes(res_elf_info,TWinLikeResourceFile);
 end.
+

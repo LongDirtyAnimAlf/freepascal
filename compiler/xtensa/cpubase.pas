@@ -78,11 +78,14 @@ unit cpubase;
 
       { Float Super register first and last }
       first_fpu_supreg    = RS_F0;
-      first_fpu_imreg     = $08;
+      first_fpu_imreg     = $10;
 
       { MM Super register first and last }
       first_mm_supreg    = RS_INVALID;
       first_mm_imreg     = $30;
+
+      { firs flag imaginary register }
+      first_flag_imreg     = $10;
 
       { TODO: Calculate bsstart}
       regnumber_count_bsstart = 16;
@@ -109,10 +112,18 @@ unit cpubase;
         C_GE,C_LT,C_GEU,C_LTU,
         C_ANY,C_BNONE,C_ALL,C_NALL,C_BC,C_BS,
         C_EQZ,C_NEZ,C_LTZ,C_GEZ,
-        C_EQI,C_NEI,C_LTI,C_GEI,C_LTUI,C_GEUI
+        C_EQI,C_NEI,C_LTI,C_GEI,C_LTUI,C_GEUI,
+        C_F,C_T
       );
 
       TAsmConds = set of TAsmCond;
+
+      TResFlagsEnum = (F_Z,F_NZ);
+
+      TResFlags = record
+        register: TRegister;
+        flag: TResFlagsEnum;
+      end;
 
     const
       cond2str : array[TAsmCond] of string[4]=('',
@@ -120,7 +131,8 @@ unit cpubase;
         'ge','lt','geu','ltu',
         'any','none','all','nall','bc','bs',
         'eqz','nez','ltz','gez',
-        'eqi','nei','lti','gei','ltui','geui'
+        'eqi','nei','lti','gei','ltui','geui',
+        'f','t'
       );
 
       uppercond2str : array[TAsmCond] of string[4]=('',
@@ -128,7 +140,8 @@ unit cpubase;
         'GE','LT','GEU','LTU',
         'ANY','NONE','ALL','NALL','BC','BS',
         'EQZ','NEZ','LTZ','GEZ',
-        'EQI','NEI','LTI','GEI','LTUI','GEUI'
+        'EQI','NEI','LTI','GEI','LTUI','GEUI',
+        'F','T'
       );
 
 {*****************************************************************************
@@ -213,8 +226,9 @@ unit cpubase;
       { Offset where the parent framepointer is pushed }
       PARENT_FRAMEPOINTER_OFFSET = 0;
 
-      NR_DEFAULTFLAGS = NR_INVALID;
-      RS_DEFAULTFLAGS = RS_INVALID;
+      { we consider B0 as the default flag }
+      NR_DEFAULTFLAGS = NR_B0;
+      RS_DEFAULTFLAGS = RS_B0;
 
 {*****************************************************************************
                        GCC /ABI linking information
@@ -245,6 +259,8 @@ unit cpubase;
 
     function inverse_cond(const c: TAsmCond): TAsmCond; {$ifdef USEINLINE}inline;{$endif USEINLINE}
     function conditions_equal(const c1, c2: TAsmCond): boolean; {$ifdef USEINLINE}inline;{$endif USEINLINE}
+
+    function flags_to_cond(const f: TResFlagsEnum) : TAsmCond;
 
     { Checks if Subset is a subset of c (e.g. "less than" is a subset of "less than or equal" }
     function condition_in(const Subset, c: TAsmCond): Boolean;
@@ -302,21 +318,9 @@ unit cpubase;
           R_INTREGISTER :
             reg_cgsize:=OS_32;
           R_FPUREGISTER :
-            reg_cgsize:=OS_F80;
-          R_MMREGISTER :
-            begin
-              case getsubreg(reg) of
-                R_SUBFD,
-                R_SUBWHOLE:
-                  result:=OS_F64;
-                R_SUBFS:
-                  result:=OS_F32;
-                else
-                  internalerror(2009112903);
-              end;
-            end;
+            reg_cgsize:=OS_F32;
           else
-            internalerror(200303181);
+            internalerror(2020040501);
           end;
         end;
 
@@ -361,10 +365,20 @@ unit cpubase;
           C_BNONE,C_ANY,C_NALL,C_BNONE,C_BS,C_BC,
 
           C_NEZ,C_EQZ,C_GEZ,C_LTZ,
-          C_NEI,C_EQI,C_GEI,C_LTI,C_GEUI,C_LTUI
+          C_NEI,C_EQI,C_GEI,C_LTI,C_GEUI,C_LTUI,
+          C_T,C_F
         );
       begin
         result := inverse[c];
+      end;
+
+
+    function flags_to_cond(const f: TResFlagsEnum) : TAsmCond;
+      const flags2cond: array[TResFlagsEnum] of tasmcond = (
+          C_F,
+          C_T);
+      begin
+        flags_to_cond := flags2cond[f];
       end;
 
 

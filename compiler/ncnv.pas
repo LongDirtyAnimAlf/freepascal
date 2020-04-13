@@ -2339,7 +2339,7 @@ implementation
              copytype:=pc_address_only
            else
              copytype:=pc_normal;
-           resultdef:=pd.getcopyas(procvardef,copytype,'');
+           resultdef:=cprocvardef.getreusableprocaddr(pd,copytype);
          end;
       end;
 
@@ -3181,6 +3181,7 @@ implementation
         { must be done before code below, because we need the
           typeconversions for ordconstn's as well }
         case convtype of
+          tc_bool_2_int,
           tc_int_2_bool,
           tc_int_2_int:
             begin
@@ -3212,6 +3213,13 @@ implementation
                     typeconv (e.g. int32 to int32). If that's the case, we remove it }
                   if equal_defs(left.resultdef,resultdef) then
                     begin
+                      result:=left;
+                      left:=nil;
+                      exit;
+                    end;
+                  if (convtype=tc_int_2_int) and (left.nodetype=typeconvn) and (ttypeconvnode(left).convtype=tc_bool_2_int) then
+                    begin
+                      ttypeconvnode(left).resultdef:=resultdef;
                       result:=left;
                       left:=nil;
                       exit;
@@ -3529,7 +3537,11 @@ implementation
             (left.resultdef.size=resultdef.size) and
             (left.expectloc in [LOC_REFERENCE,LOC_CREFERENCE,LOC_CREGISTER]) then
            begin
+{$ifdef xtensa}
+             expectloc:=LOC_REGISTER;
+{$else xtensa}
              expectloc:=left.expectloc;
+{$endif xtensa}
              exit;
            end;
          { when converting 64bit int to C-ctyle boolean, first convert to an int32 and then }

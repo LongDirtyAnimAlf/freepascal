@@ -107,8 +107,7 @@ uses
   llvminfo,
 {$endif llvm}
   dirparse,
-  pkgutil,
-  i_bsd;
+  pkgutil;
 
 const
   page_size = 24;
@@ -1341,7 +1340,7 @@ begin
                       end;
 {$endif arm}
 {$ifdef llvm}
-                    'L':
+                    'l':
                       begin
                         l:=j+1;
                         while l<=length(More) do
@@ -1363,14 +1362,14 @@ begin
                                            exclude(init_settings.moduleswitches,cs_lto);
                                        end;
                                      'ltonosystem':
-                                         begin
-                                           if not disable then
-                                             begin
-                                               include(init_settings.globalswitches,cs_lto_nosystem);
-                                             end
-                                           else
-                                             exclude(init_settings.globalswitches,cs_lto_nosystem);
-                                         end;
+                                       begin
+                                         if not disable then
+                                           begin
+                                             include(init_settings.globalswitches,cs_lto_nosystem);
+                                           end
+                                         else
+                                           exclude(init_settings.globalswitches,cs_lto_nosystem);
+                                       end;
                                     else
                                       begin
                                         IllegalPara(opt);
@@ -2432,7 +2431,6 @@ begin
                       begin
                         if (target_info.system in systems_darwin) then
                           begin
-                            RegisterRes(res_macosx_ext_info,TWinLikeResourceFile);
                             set_target_res(res_ext);
                             target_info.resobjext:='.fpcres';
                           end
@@ -2538,7 +2536,7 @@ begin
                       begin
 {$push}
 {$warn 6018 off} { Unreachable code due to compile time evaluation }
-                        if (target_info.system in systems_embedded) and
+                        if ((target_info.system in systems_embedded) or (target_info.system in systems_freertos)) and
                           ControllerSupport then
                           begin
                             s:=upper(copy(more,j+1,length(more)-j));
@@ -2677,7 +2675,25 @@ begin
                         else
                           include(init_settings.globalswitches,cs_link_native);
                       end;
-
+{$ifdef llvm}
+                    'l' :
+                      begin
+                        if j=length(more) then
+                          IllegalPara(opt)
+                        else
+                          begin
+                             case more[j+1] of
+                               'S':
+                                 begin
+                                   llvmutilssuffix:=copy(more,j+2,length(more));
+                                   j:=length(more);
+                                 end
+                               else
+                                 IllegalPara(opt);
+                             end;
+                          end;
+                      end;
+{$endif}
                     'm' :
                       begin
                         If UnsetBool(More, j, opt, false) then
@@ -4257,6 +4273,11 @@ begin
   end;
 {$endif i386}
 
+{$ifdef xtensa}
+  if not(option.FPUSetExplicitly) then
+    init_settings.fputype:=embedded_controllers[init_settings.controllertype].fputype;
+{$endif xtensa}
+
 {$ifdef arm}
   case target_info.system of
     system_arm_darwin:
@@ -4634,7 +4655,7 @@ begin
 
 {$push}
 {$warn 6018 off} { Unreachable code due to compile time evaluation }
-  if ControllerSupport and (target_info.system in systems_embedded) and
+  if ControllerSupport and (target_info.system in (systems_embedded+systems_freertos)) and
     (init_settings.controllertype<>ct_none) then
     begin
       with embedded_controllers[init_settings.controllertype] do

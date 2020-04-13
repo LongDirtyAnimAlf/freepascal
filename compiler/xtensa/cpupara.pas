@@ -37,7 +37,6 @@ unit cpupara;
          function get_volatile_registers_fpu(calloption : tproccalloption):tcpuregisterset;override;
          function push_addr_param(varspez:tvarspez;def : tdef;calloption : tproccalloption) : boolean;override;
 
-         procedure getcgtempparaloc(list: TAsmList; pd : tabstractprocdef; nr : longint; var cgpara : tcgpara);override;
          function create_paraloc_info(p : tabstractprocdef; side: tcallercallee):longint;override;
          function create_varargs_paraloc_info(p : tabstractprocdef; side: tcallercallee; varargspara:tvarargsparalist):longint;override;
          function get_funcretloc(p : tabstractprocdef; side: tcallercallee; forcetempdef: tdef): tcgpara;override;
@@ -76,44 +75,6 @@ unit cpupara;
       end;
 
 
-    procedure tcpuparamanager.getcgtempparaloc(list: TAsmList; pd : tabstractprocdef; nr : longint; var cgpara : tcgpara);
-      var
-        paraloc : pcgparalocation;
-        psym : tparavarsym;
-        pdef : tdef;
-      begin
-        psym:=tparavarsym(pd.paras[nr-1]);
-        pdef:=psym.vardef;
-        if push_addr_param(psym.varspez,pdef,pd.proccalloption) then
-          pdef:=cpointerdef.getreusable_no_free(pdef);
-        cgpara.reset;
-        cgpara.size:=def_cgsize(pdef);
-        cgpara.intsize:=tcgsize2size[cgpara.size];
-        cgpara.alignment:=get_para_align(pd.proccalloption);
-        cgpara.def:=pdef;
-        paraloc:=cgpara.add_location;
-        with paraloc^ do
-         begin
-           size:=def_cgsize(pdef);
-           def:=pdef;
-           if (nr<=8) then
-             begin
-               if nr=0 then
-                 internalerror(200309271);
-               loc:=LOC_REGISTER;
-               register:=newreg(R_INTREGISTER,RS_A2+nr,R_SUBWHOLE);
-             end
-           else
-             begin
-               loc:=LOC_REFERENCE;
-               paraloc^.reference.index:=NR_STACK_POINTER_REG;
-               reference.offset:=sizeof(pint)*(nr);
-             end;
-          end;
-      end;
-
-
-
     function getparaloc(p : tdef) : tcgloc;
 
       begin
@@ -124,11 +85,7 @@ unit cpupara;
             orddef:
               result:=LOC_REGISTER;
             floatdef:
-              if (cs_fp_emulation in current_settings.moduleswitches) or
-                 (current_settings.fputype in [fpu_soft]) then
-                result := LOC_REGISTER
-              else
-                result := LOC_FPUREGISTER;
+              result:=LOC_REGISTER;
             enumdef:
               result:=LOC_REGISTER;
             pointerdef:
@@ -266,57 +223,60 @@ unit cpupara;
           exit;
 
         paraloc:=result.add_location;
-        { Return in FPU register? }
-        if (result.def.typ=floatdef) and
-           (not ((cs_fp_emulation in current_settings.moduleswitches) or
-                 (current_settings.fputype in [fpu_soft]))) then
+        if retcgsize in [OS_64,OS_S64,OS_F64] then
           begin
-            paraloc^.loc:=LOC_FPUREGISTER;
-            paraloc^.register:=NR_FPU_RESULT_REG;
-            paraloc^.size:=retcgsize;
-            paraloc^.def:=result.def;
+            { low 32bits }
+            paraloc^.loc:=LOC_REGISTER;
+            paraloc^.size:=OS_32;
+            paraloc^.def:=u32inttype;
+            if side=callerside then
+              case target_info.abi of
+                abi_xtensa_call0:
+              paraloc^.register:=NR_A2;
+                abi_xtensa_windowed:
+                  { only call8 used/supported so far }
+                  paraloc^.register:=newreg(R_INTREGISTER,RS_A10,cgsize2subreg(R_INTREGISTER,retcgsize));
+                else
+                  Internalerror(2020032201);
+              end
+            else
+              paraloc^.register:=NR_A2;
+
+            { high 32bits }
+            paraloc:=result.add_location;
+            paraloc^.loc:=LOC_REGISTER;
+            paraloc^.size:=OS_32;
+            paraloc^.def:=u32inttype;
+            if side=callerside then
+              case target_info.abi of
+                abi_xtensa_call0:
+              paraloc^.register:=NR_A3;
+                abi_xtensa_windowed:
+                  { only call8 used/supported so far }
+                  paraloc^.register:=newreg(R_INTREGISTER,RS_A11,cgsize2subreg(R_INTREGISTER,retcgsize));
+                else
+                  Internalerror(2020032202);
+              end
+            else
+              paraloc^.register:=NR_A3;
           end
         else
-         { Return in register }
           begin
-            if retcgsize in [OS_64,OS_S64] then
-             begin
-               { low 32bits }
-               paraloc^.loc:=LOC_REGISTER;
-               if side=callerside then
-                 paraloc^.register:=NR_A3
-               else
-                 paraloc^.register:=NR_A3;
-               paraloc^.size:=OS_32;
-               paraloc^.def:=u32inttype;
-               { high 32bits }
-               paraloc:=result.add_location;
-               paraloc^.loc:=LOC_REGISTER;
-               if side=callerside then
-                 paraloc^.register:=NR_A2
-               else
-                 paraloc^.register:=NR_A2;
-               paraloc^.size:=OS_32;
-               paraloc^.def:=u32inttype;
-             end
+            paraloc^.loc:=LOC_REGISTER;
+            if side=callerside then
+              case target_info.abi of
+                abi_xtensa_call0:
+                  paraloc^.register:=newreg(R_INTREGISTER,RS_FUNCTION_RESULT_REG,cgsize2subreg(R_INTREGISTER,retcgsize));
+                abi_xtensa_windowed:
+                  { only call8 used/supported so far }
+                  paraloc^.register:=newreg(R_INTREGISTER,RS_A10,cgsize2subreg(R_INTREGISTER,retcgsize));
+                else
+                  Internalerror(2020031502);
+              end
             else
-             begin
-               paraloc^.loc:=LOC_REGISTER;
-               if side=callerside then
-                 case target_info.abi of
-                   abi_xtensa_call0:
-                     paraloc^.register:=newreg(R_INTREGISTER,RS_FUNCTION_RESULT_REG,cgsize2subreg(R_INTREGISTER,retcgsize));
-                   abi_xtensa_windowed:
-                     { only call8 used/supported so far }
-                     paraloc^.register:=newreg(R_INTREGISTER,RS_A10,cgsize2subreg(R_INTREGISTER,retcgsize));
-                   else
-                     Internalerror(2020031502);
-                 end
-               else
-                 paraloc^.register:=newreg(R_INTREGISTER,RS_FUNCTION_RETURN_REG,cgsize2subreg(R_INTREGISTER,retcgsize));
-               paraloc^.size:=retcgsize;
-               paraloc^.def:=result.def;
-             end;
+              paraloc^.register:=newreg(R_INTREGISTER,RS_FUNCTION_RETURN_REG,cgsize2subreg(R_INTREGISTER,retcgsize));
+            paraloc^.size:=OS_32;
+            paraloc^.def:=result.def;
           end;
       end;
 
@@ -464,30 +424,10 @@ unit cpupara;
                       inc(nextintreg);
                       dec(paralen,tcgsize2size[paraloc^.size]);
                     end
-                  else if (loc = LOC_FPUREGISTER) and
-                          (nextintreg <= maxintreg) then
-                    begin
-                      paraloc^.loc:=loc;
-                      paraloc^.size := paracgsize;
-                      paraloc^.def := paradef;
-                      paraloc^.register:=newreg(R_FPUREGISTER,nextintreg,R_SUBWHOLE);
-                      inc(nextintreg);
-                      dec(paralen,tcgsize2size[paraloc^.size]);
-                    end
                   else { LOC_REFERENCE }
                     begin
                        paraloc^.loc:=LOC_REFERENCE;
                        case loc of
-                         LOC_FPUREGISTER:
-                           begin
-                             paraloc^.size:=int_float_cgsize(paralen);
-                             case paraloc^.size of
-                               OS_F32: paraloc^.def:=s32floattype;
-                               OS_F64: paraloc^.def:=s64floattype;
-                               else
-                                 internalerror(2020031406);
-                             end;
-                           end;
                          LOC_REGISTER,
                          LOC_REFERENCE:
                            begin
@@ -536,7 +476,7 @@ unit cpupara;
       var
         cur_stack_offset: aword;
         parasize, l: longint;
-        curintreg, firstfloatreg: tsuperregister;
+        curintreg: tsuperregister;
         i : integer;
         hp: tparavarsym;
         paraloc: pcgparalocation;

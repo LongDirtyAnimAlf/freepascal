@@ -39,6 +39,14 @@ implementation
       ,t_embed
     {$endif}
 
+    {$ifndef NOTARGETFREERTOS}
+      ,t_freertos
+    {$endif}
+
+    {$ifndef NOTARGETLINUX}
+      ,t_linux
+    {$endif}
+
 {**************************************
              Assemblers
 **************************************}

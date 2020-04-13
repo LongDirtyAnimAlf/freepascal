@@ -30,11 +30,16 @@ interface
 
     type
        TCPUAddNode = class(tcgaddnode)
+       private
+         procedure pass_left_and_right;
        protected
          function pass_1 : tnode;override;
+         function first_addfloat: tnode;override;
          procedure second_cmpordinal;override;
          procedure second_cmpsmallset;override;
          procedure second_cmp64bit;override;
+         procedure second_cmpfloat;override;
+         procedure second_addfloat;override;
          procedure second_cmp;
        end;
 
@@ -53,7 +58,7 @@ interface
       hlcgobj;
 
 {*****************************************************************************
-                               TAVRAddNode
+                               TCPUAddNode
 *****************************************************************************}
 
    procedure TCPUAddNode.second_cmpsmallset;
@@ -124,13 +129,16 @@ interface
             internalerror(2020030801);
           end;
 
-        if right.nodetype=ordconstn then
+        if (right.nodetype=ordconstn) and not(nf_swapped in flags) then
           cg.a_cmp_const_reg_label(current_asmdata.CurrAsmList,OS_INT,cond,right.location.value,left.location.register,location.truelabel)
         else
           begin
             force_reg_left_right(false,false);
-            cg.a_cmp_reg_reg_label(current_asmdata.CurrAsmList,OS_INT,cond,left.location.register,right.location.register,location.truelabel);
-          end;                                                                                                                                
+            if nf_swapped in flags then
+               cg.a_cmp_reg_reg_label(current_asmdata.CurrAsmList,OS_INT,cond,left.location.register,right.location.register,location.truelabel)
+             else
+               cg.a_cmp_reg_reg_label(current_asmdata.CurrAsmList,OS_INT,cond,right.location.register,left.location.register,location.truelabel);
+          end;
         current_asmdata.CurrAsmList.concat(taicpu.op_sym(A_J,location.falselabel));
       end;
 
@@ -144,6 +152,10 @@ interface
     function TCPUAddNode.pass_1 : tnode;
       begin
         result:=inherited pass_1;
+        if not(assigned(result)) and (nodetype in [equaln,unequaln,ltn,lten,gtn,gten]) and
+          not((FPUXTENSA_SINGLE in fpu_capabilities[current_settings.fputype]) and
+            is_single(left.resultdef) and (nodetype<>slashn)) then
+          expectloc:=LOC_JUMP;
 {$ifdef dummy}
         if not(assigned(result)) then
           begin
@@ -173,6 +185,129 @@ interface
         second_cmp;
       end;
 
+
+    procedure TCPUAddNode.pass_left_and_right;
+      begin
+        { calculate the operator which is more difficult }
+        firstcomplex(self);
+
+        { in case of constant put it to the left }
+        if (left.nodetype=ordconstn) then
+         swapleftright;
+
+        secondpass(left);
+        secondpass(right);
+      end;
+
+
+    function TCPUAddNode.first_addfloat: tnode;
+      begin
+        result := nil;
+
+        if (FPUXTENSA_SINGLE in fpu_capabilities[current_settings.fputype]) and
+          (tfloatdef(left.resultdef).floattype=s32real) and (nodetype<>slashn) then
+          begin
+            if nodetype in [equaln,unequaln,lten,ltn,gten,gtn] then
+              expectloc:=LOC_FLAGS
+            else
+              expectloc:=LOC_FPUREGISTER;
+          end
+        else
+          result:=first_addfloat_soft;
+      end;
+
+
+    procedure TCPUAddNode.second_addfloat;
+      var
+        op    : TAsmOp;
+        cmpop,
+        singleprec , inv: boolean;
+      begin
+        pass_left_and_right;
+        if (nf_swapped in flags) then
+          swapleftright;
+
+        hlcg.location_force_fpureg(current_asmdata.CurrAsmList,left.location,left.resultdef,true);
+        hlcg.location_force_fpureg(current_asmdata.CurrAsmList,right.location,right.resultdef,true);
+
+        cmpop:=false;
+        inv:=false;
+        case nodetype of
+          addn :
+            op:=A_ADD_S;
+          muln :
+            op:=A_MUL_S;
+          subn :
+            op:=A_SUB_S;
+          unequaln,
+          equaln:
+            begin
+              op:=A_OEQ_S;
+              cmpop:=true;
+            end;
+          ltn:
+            begin
+              op:=A_OLT_S;
+              cmpop:=true;
+            end;
+          lten:
+            begin
+              op:=A_OLE_S;
+              cmpop:=true;
+            end;
+          gtn:
+            begin
+              op:=A_OLT_S;
+              swapleftright;
+              cmpop:=true;
+            end;
+          gten:
+            begin
+              op:=A_OLE_S;
+              swapleftright;
+              cmpop:=true;
+            end;
+          else
+            internalerror(2020032601);
+        end;
+
+        { initialize de result }
+        if cmpop then
+          begin
+           location_reset(location,LOC_FLAGS,OS_NO);
+           location.resflags.register:=NR_B0;
+           location.resflags.flag:=F_NZ;
+          end
+        else
+         begin
+           location_reset(location,LOC_FPUREGISTER,def_cgsize(resultdef));
+           location.register:=cg.getfpuregister(current_asmdata.CurrAsmList,location.size);
+         end;
+
+        { emit the actual operation }
+        if cmpop then
+          begin
+            cg.getcpuregister(current_asmdata.CurrAsmList,location.resflags.register);
+            current_asmdata.CurrAsmList.concat(taicpu.op_reg_reg_reg(op,location.resflags.register,left.location.register,right.location.register));
+            cg.maybe_check_for_fpu_exception(current_asmdata.CurrAsmList);
+
+            if inv then
+              location.resflags.flag:=F_Z;
+          end
+        else
+          begin
+            current_asmdata.CurrAsmList.concat(taicpu.op_reg_reg_reg(op,location.register,left.location.register,right.location.register));
+            cg.maybe_check_for_fpu_exception(current_asmdata.CurrAsmList);
+          end;
+      end;
+
+
+    procedure TCPUAddNode.second_cmpfloat;
+      begin
+        second_addfloat;
+      end;
+
 begin
   caddnode:=tcpuaddnode;
 end.
+

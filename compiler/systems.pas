@@ -76,6 +76,7 @@ interface
          ,af_no_debug
          ,af_stabs_use_function_absolute_addresses
          ,af_no_stabs
+         ,af_llvm
        );
 
        pasminfo = ^tasminfo;
@@ -256,7 +257,7 @@ interface
        systems_linux = [system_i386_linux,system_x86_64_linux,system_powerpc_linux,system_powerpc64_linux,
                        system_arm_linux,system_sparc_linux,system_sparc64_linux,system_m68k_linux,
                        system_x86_6432_linux,system_mipseb_linux,system_mipsel_linux,system_aarch64_linux,
-                       system_riscv32_linux,system_riscv64_linux];
+                       system_riscv32_linux,system_riscv64_linux,system_xtensa_linux];
        systems_dragonfly = [system_x86_64_dragonfly];
        systems_freebsd = [system_i386_freebsd,
                           system_x86_64_freebsd];
@@ -298,7 +299,11 @@ interface
                            system_mips_embedded,system_arm_embedded,
                            system_powerpc64_embedded,system_avr_embedded,
                            system_jvm_java32,system_mipseb_embedded,system_mipsel_embedded,
-                           system_i8086_embedded,system_riscv32_embedded,system_riscv64_embedded];
+                           system_i8086_embedded,system_riscv32_embedded,system_riscv64_embedded,
+                           system_xtensa_embedded];
+
+       { all FreeRTOS systems }
+       systems_freertos = [system_xtensa_freertos];
 
        { all systems that allow section directive }
        systems_allow_section = systems_embedded;
@@ -362,6 +367,7 @@ interface
 
        systems_internal_sysinit = [system_i386_win32,system_x86_64_win64,
                                    system_i386_linux,system_powerpc64_linux,system_sparc64_linux,system_x86_64_linux,
+                                   system_xtensa_linux,
                                    system_m68k_atari,system_m68k_palmos,
                                    system_i386_haiku,system_x86_64_haiku,
                                    system_i386_openbsd,system_x86_64_openbsd,
@@ -432,9 +438,9 @@ interface
          (name: 'AIX'    ; supported:{$if defined(powerpc) or defined(powerpc64)}true{$else}false{$endif}),
          (name: 'DARWIN'    ; supported:{$if defined(powerpc) or defined(powerpc64)}true{$else}false{$endif}),
          (name: 'ELFV2'  ; supported:{$if defined(powerpc64)}true{$else}false{$endif}),
-         (name: 'EABI'   ; supported:{$ifdef FPC_ARMEL}true{$else}false{$endif}),
+         (name: 'EABI'   ; supported:{$if defined(arm)}true{$else}false{$endif}),
          (name: 'ARMEB'  ; supported:{$ifdef FPC_ARMEB}true{$else}false{$endif}),
-         (name: 'EABIHF' ; supported:{$ifdef FPC_ARMHF}true{$else}false{$endif}),
+         (name: 'EABIHF' ; supported:{$if defined(arm)}true{$else}false{$endif}),
          (name: 'OLDWIN32GNU'; supported:{$ifdef I386}true{$else}false{$endif}),
          (name: 'AARCH64IOS'; supported:{$ifdef aarch64}true{$else}false{$endif}),
          (name: 'RISCVHF'; supported:{$if defined(riscv32) or defined(riscv64)}true{$else}false{$endif}),

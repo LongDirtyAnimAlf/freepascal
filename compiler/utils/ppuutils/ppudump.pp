@@ -221,7 +221,9 @@ const
   { 100 } 'Android-AArch64',
   { 101 } 'Android-x86-64',
   { 102 } 'Haiku-x86-64',
-  { 103 } 'Embedded-Xtensa'
+  { 103 } 'Embedded-Xtensa',
+  { 104 } 'FreeRTos-Xtensa',
+  { 105 } 'Linux-Xtensa'
   );
 
 const

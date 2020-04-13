@@ -57,7 +57,9 @@ interface
 
         procedure a_call_name(list:TAsmList;const s:string; weak: boolean);override;
         procedure a_call_reg(list:TAsmList;Reg:tregister);override;
+
         procedure a_jmp_name(list: TAsmList; const s: string);override;
+        procedure a_jmp_flags(list: TAsmList; const f: TResFlags; l: tasmlabel);override;
 
         procedure g_proc_entry(list: TAsmList; localsize: longint; nostackframe: boolean);override;
         procedure g_proc_exit(list: TAsmList; parasize: longint; nostackframe: boolean);override;
@@ -67,7 +69,13 @@ interface
         procedure a_cmp_reg_reg_label(list: TAsmList; size: tcgsize; cmp_op: topcmp; reg1, reg2: tregister; l: tasmlabel);override;
         procedure a_jmp_always(list: TAsmList; l: TAsmLabel);override;
 
+        procedure g_flags2reg(list: TAsmList; size: TCgSize; const f: tresflags; reg: TRegister);override;
+
         procedure g_concatcopy(list : TAsmList; const source,dest : treference; len : tcgint);override;
+
+        procedure a_loadfpu_reg_reg(list: TAsmList; fromsize, tosize: tcgsize; reg1, reg2: tregister);override;
+        procedure a_loadfpu_ref_reg(list: TAsmList; fromsize, tosize: tcgsize; const ref: treference; reg: tregister);override;
+        procedure a_loadfpu_reg_ref(list: TAsmList; fromsize, tosize: tcgsize; reg: tregister; const ref: treference); override;
 
         procedure maybeadjustresult(list: TAsmList; op: TOpCg; size: tcgsize; dst: tregister);
       end;
@@ -136,6 +144,9 @@ implementation
         rg[R_FPUREGISTER]:=trgcpu.create(R_FPUREGISTER,R_SUBNONE,
             [RS_F0,RS_F1,RS_F2,RS_F3,RS_F4,RS_F5,RS_F6,RS_F7,RS_F8,RS_F9,
              RS_F10,RS_F11,RS_F12,RS_F13,RS_F14,RS_F15],first_fpu_imreg,[]);
+        rg[R_SPECIALREGISTER]:=trgcpu.create(R_SPECIALREGISTER,R_SUBNONE,
+            [RS_B0,RS_B1,RS_B2,RS_B3,RS_B4,RS_B5,RS_B6,RS_B7,RS_B8,RS_B9,
+             RS_B10,RS_B11,RS_B12,RS_B13,RS_B14,RS_B15],first_flag_imreg,[]);
       end;
 
 
@@ -143,6 +154,7 @@ implementation
       begin
         rg[R_INTREGISTER].free;
         rg[R_FPUREGISTER].free;
+        rg[R_SPECIALREGISTER].free;
         inherited done_register_allocators;
       end;
 
@@ -167,14 +179,26 @@ implementation
                   list.concat(taicpu.op_reg_reg_const_const(A_EXTUI,reg2,reg1,0,8));
                 OS_S8:
                   begin
-                    list.concat(taicpu.op_reg_reg_const(A_SEXT,reg2,reg1,7));
+                    if CPUXTENSA_HAS_SEXT in cpu_capabilities[current_settings.cputype] then
+                      list.concat(taicpu.op_reg_reg_const(A_SEXT,reg2,reg1,7))
+                    else
+                      begin
+                        list.concat(taicpu.op_reg_reg_const(A_SLLI,reg2,reg1,24));
+                        list.concat(taicpu.op_reg_reg_const(A_SRAI,reg2,reg2,24));
+                      end;
                     if tosize=OS_16 then
                       list.concat(taicpu.op_reg_reg_const_const(A_EXTUI,reg2,reg2,0,16));
                   end;
                 OS_16:
                   list.concat(taicpu.op_reg_reg_const_const(A_EXTUI,reg2,reg1,0,16));
                 OS_S16:
-                  list.concat(taicpu.op_reg_reg_const(A_SEXT,reg2,reg1,15));
+                  if CPUXTENSA_HAS_SEXT in cpu_capabilities[current_settings.cputype] then
+                    list.concat(taicpu.op_reg_reg_const(A_SEXT,reg2,reg1,15))
+                  else
+                    begin
+                      list.concat(taicpu.op_reg_reg_const(A_SLLI,reg2,reg1,16));
+                      list.concat(taicpu.op_reg_reg_const(A_SRAI,reg2,reg2,16));
+                    end;
                 else
                   conv_done:=false;
               end;
@@ -258,7 +282,13 @@ implementation
         list.concat(taicpu.op_reg_ref(op,reg,href));
 
         if (fromsize=OS_S8) and not(tosize in [OS_S8,OS_8]) then
-          list.concat(taicpu.op_reg_reg_const(A_SEXT,reg,reg,7));
+          if CPUXTENSA_HAS_SEXT in cpu_capabilities[current_settings.cputype] then
+            list.concat(taicpu.op_reg_reg_const(A_SEXT,reg,reg,7))
+          else
+            begin
+              list.concat(taicpu.op_reg_reg_const(A_SLLI,reg,reg,24));
+              list.concat(taicpu.op_reg_reg_const(A_SRAI,reg,reg,24));
+            end;
         if (fromsize<>tosize) and (not (tosize in [OS_SINT,OS_INT])) then
           a_load_reg_reg(list,fromsize,tosize,reg,reg);
       end;
@@ -462,6 +492,8 @@ implementation
           a_op_const_reg_reg(list,OP_SHL,size,l1,src,dst)
         else if (op=OP_ADD) and (a>=-128) and (a<=127) then
           list.concat(taicpu.op_reg_reg_const(A_ADDI,dst,src,a))
+        else if (op=OP_SUB) and (a>=-127) and (a<=128) then
+          list.concat(taicpu.op_reg_reg_const(A_ADDI,dst,src,-a))
         else if (op=OP_SHL) and (a>=1) and (a<=31) then
           list.concat(taicpu.op_reg_reg_const(A_SLLI,dst,src,a))
         else if (op=OP_SHR) and (a>=0) and (a<=15) then
@@ -501,10 +533,10 @@ implementation
         else if op in [OP_SAR,OP_SHL,OP_SHR] then
           begin
             if op=OP_SHL then
-              list.concat(taicpu.op_reg(A_SSL,src2))
+              list.concat(taicpu.op_reg(A_SSL,src1))
             else
-              list.concat(taicpu.op_reg(A_SSR,src2));
-            list.concat(taicpu.op_reg_reg(TOpCG2AsmOp[op],dst,src1));
+              list.concat(taicpu.op_reg(A_SSR,src1));
+            list.concat(taicpu.op_reg_reg(TOpCG2AsmOp[op],dst,src2));
             maybeadjustresult(list,op,size,dst);
           end
         else
@@ -543,6 +575,16 @@ implementation
         ai:=TAiCpu.op_sym(A_J,current_asmdata.RefAsmSymbol(s,AT_FUNCTION));
         ai.is_jmp:=true;
         list.Concat(ai);
+      end;
+
+
+    procedure tcgcpu.a_jmp_flags(list: TAsmList; const f: TResFlags; l: tasmlabel);
+      var
+        instr: taicpu;
+      begin
+        instr:=taicpu.op_reg_sym(A_Bcc,f.register,l);
+        instr.condition:=flags_to_cond(f.flag);
+        list.concat(instr);
       end;
 
 
@@ -633,8 +675,11 @@ implementation
                     end
                   else
                     begin
-                      { spill area }
-                      inc(localsize,max(txtensaprocinfo(current_procinfo).maxcall,4)*4);
+                      { default spill area }
+                      inc(localsize,4*4);
+                      { additional spill area? }
+                      if pi_do_call in current_procinfo.flags then
+                        inc(localsize,txtensaprocinfo(current_procinfo).maxcall*4);
 
                       localsize:=align(localsize,current_settings.alignment.localalignmax);
                     end;
@@ -754,7 +799,7 @@ implementation
             reg2:=tmpreg;
           end;
 
-        instr:=taicpu.op_reg_reg_sym(A_Bcc,reg1,reg2,l);
+        instr:=taicpu.op_reg_reg_sym(A_Bcc,reg2,reg1,l);
         instr.condition:=TOpCmp2AsmCond[cmp_op];
         list.concat(instr);
       end;
@@ -767,6 +812,20 @@ implementation
         ai:=taicpu.op_sym(A_J,l);
         ai.is_jmp:=true;
         list.concat(ai);
+      end;
+
+
+    procedure tcgcpu.g_flags2reg(list: TAsmList; size: TCgSize; const f: tresflags; reg: TRegister);
+      var
+        hregister: TRegister;
+        instr: taicpu;
+      begin
+        a_load_const_reg(list,size,0,reg);
+        hregister:=getintregister(list,size);
+        a_load_const_reg(list,size,1,hregister);
+        instr:=taicpu.op_reg_reg_reg(A_MOV,reg,hregister,f.register);
+        instr.condition:=flags_to_cond(f.flag);
+        list.concat(instr);
       end;
 
 
@@ -867,6 +926,10 @@ implementation
             list.concat(taicpu.op_reg_reg_const(A_ADDI, dst.base, dst.base, 4));
             list.concat(taicpu.op_reg_reg_const(A_ADDI, countreg, countreg, -1));
             a_cmp_const_reg_label(list,OS_INT,OC_GT,0,countreg,lab);
+            { keep the registers alive }
+            list.concat(taicpu.op_reg_reg(A_MOV,countreg,countreg));
+            list.concat(taicpu.op_reg_reg(A_MOV,src.base,src.base));
+            list.concat(taicpu.op_reg_reg(A_MOV,dst.base,dst.base));
             len := len mod 4;
           end;
           { unrolled loop }
@@ -908,6 +971,49 @@ implementation
           end;
         end;
       end;
+
+
+     procedure tcgcpu.a_loadfpu_reg_reg(list: TAsmList; fromsize,tosize: tcgsize; reg1, reg2: tregister);
+       begin
+         if not(fromsize in [OS_32,OS_F32]) then
+           InternalError(2020032603);
+         list.concat(taicpu.op_reg_reg(A_MOV_S,reg2,reg1));
+       end;
+
+
+     procedure tcgcpu.a_loadfpu_ref_reg(list: TAsmList; fromsize,tosize: tcgsize; const ref: treference; reg: tregister);
+       var
+         href: treference;
+       begin
+         if not(fromsize in [OS_32,OS_F32]) then
+           InternalError(2020032602);
+         href:=ref;
+         if assigned(href.symbol) or
+           (href.index<>NR_NO) or
+           (((href.offset<0) or (href.offset>1020) or (href.offset mod 4<>0))) then
+           fixref(list,href);
+
+         list.concat(taicpu.op_reg_ref(A_LSI,reg,href));
+
+         if fromsize<>tosize then
+           a_loadfpu_reg_reg(list,fromsize,tosize,reg,reg);
+       end;
+
+
+     procedure tcgcpu.a_loadfpu_reg_ref(list: TAsmList; fromsize, tosize: tcgsize; reg: tregister; const ref: treference);
+       var
+         href: treference;
+       begin
+         if not(fromsize in [OS_32,OS_F32]) then
+           InternalError(2020032604);
+         href:=ref;
+         if assigned(href.symbol) or
+           (href.index<>NR_NO) or
+           (((href.offset<0) or (href.offset>1020) or (href.offset mod 4<>0))) then
+           fixref(list,href);
+
+         list.concat(taicpu.op_reg_ref(A_SSI,reg,href));
+       end;
 
 
     procedure tcgcpu.maybeadjustresult(list : TAsmList; op : TOpCg; size : tcgsize; dst : tregister);

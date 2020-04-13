@@ -2324,6 +2324,7 @@ type
       Params: TFPList): TPasElement; virtual;
     procedure FinishSpecializedClassOrRecIntf(Scope: TPasGenericScope); virtual;
     procedure FinishSpecializations(Scope: TPasGenericScope); virtual;
+    function IsSpecialized(El: TPasGenericType): boolean; overload;
     function IsFullySpecialized(El: TPasGenericType): boolean; overload;
     function IsFullySpecialized(Proc: TPasProcedure): boolean; overload;
     function IsInterfaceType(const ResolvedEl: TPasResolverResult;
@@ -4863,8 +4864,6 @@ begin
       begin
       // this proc was already found. This happens when this is the forward
       // declaration or a previously found implementation.
-      Data^.ElScope:=ElScope;
-      Data^.StartScope:=StartScope;
       exit;
       end;
 
@@ -10773,6 +10772,7 @@ begin
 
   // FoundEl compatible element -> create reference
   Ref:=CreateReference(FoundEl,NameExpr,rraRead);
+
   if FindCallData.StartScope.ClassType=ScopeClass_WithExpr then
     Ref.WithExprScope:=TPasWithExprScope(FindCallData.StartScope);
   FindData:=Default(TPRFindData);
@@ -21571,6 +21571,7 @@ begin
   {$IFDEF VerbosePasResolver}
   writeln('TPasResolver.CreateReference RefEl=',GetObjName(RefEl),' DeclEl=',GetObjName(DeclEl));
   {$ENDIF}
+
   Result:=TResolvedReference.Create;
   if FindData<>nil then
     begin
@@ -27943,7 +27944,7 @@ var
   ProcScope: TPasProcedureScope;
 begin
   Result:=nil;
-  if El.CustomData<>nil then
+  if (El.ClassType=TPasSpecializeType) and (El.CustomData<>nil) then
     RaiseNotYetImplemented(20190726142522,El);
 
   // check if there is already such a specialization
@@ -28097,6 +28098,12 @@ begin
   if SpecializedItems=nil then exit;
   for i:=0 to SpecializedItems.Count-1 do
     SpecializeGenericImpl(TPRSpecializedItem(SpecializedItems[i]));
+end;
+
+function TPasResolver.IsSpecialized(El: TPasGenericType): boolean;
+begin
+  Result:=(El<>nil) and (El.CustomData is TPasGenericScope)
+      and (TPasGenericScope(El.CustomData).SpecializedFromItem<>nil);
 end;
 
 function TPasResolver.IsFullySpecialized(El: TPasGenericType): boolean;

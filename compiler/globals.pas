@@ -273,6 +273,10 @@ interface
        utilsdirectory : TPathStr;
        { targetname specific prefix used by these utils (options -XP<path>) }
        utilsprefix    : TCmdStr;
+
+       { Suffix for LLVM utilities, e.g. '-7' for clang-7 }
+       llvmutilssuffix     : TCmdStr;
+
        cshared        : boolean;        { pass --shared to ld to link C libs shared}
        Dontlinkstdlibpath: Boolean;     { Don't add std paths to linkpath}
        rlinkpath      : TCmdStr;        { rpath-link linkdir override}
@@ -937,6 +941,7 @@ implementation
          Replace(s,'$FPCDATE',date_string);
          Replace(s,'$FPCCPU',target_cpu_string);
          Replace(s,'$FPCOS',target_os_string);
+         Replace(s,'$FPCBINDIR',exepath);
          if (tf_use_8_3 in Source_Info.Flags) or
             (tf_use_8_3 in Target_Info.Flags) then
            Replace(s,'$FPCTARGET',target_os_string)
@@ -1608,6 +1613,7 @@ implementation
         { Utils directory }
         utilsdirectory:='';
         utilsprefix:='';
+        llvmutilssuffix:='';
         cshared:=false;
         rlinkpath:='';
         sysrootpath:='';

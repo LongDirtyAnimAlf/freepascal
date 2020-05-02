@@ -88,6 +88,7 @@ interface
           supported_targets : set of tsystem;
           flags        : set of tasmflags;
           labelprefix : string[3];
+          labelmaxlen : integer;
           comment     : string[3];
           { set to '$' if that character is allowed in symbol names, otherwise
             to alternate character by which '$' should be replaced }
@@ -100,7 +101,7 @@ interface
           addfilecmd  : string[10];
           arfirstcmd  : string[50];
           arcmd       : string[50];
-          arfinishcmd : string[10];
+          arfinishcmd : string[11];
        end;
 
        presinfo = ^tresinfo;
@@ -186,7 +187,7 @@ interface
        tsysteminfo = record
           system       : tsystem;
           name         : string[34];
-          shortname    : string[9];
+          shortname    : string[10];
           flags        : set of tsystemflags;
           cpu          : tsystemcpu;
           unit_env     : string[16];
@@ -248,6 +249,8 @@ interface
       supported: boolean;
     end;
 
+{$push}
+{$j-}
     const
        { alias for supported_target field in tasminfo }
        system_any = system_none;
@@ -274,11 +277,11 @@ interface
        systems_aix = [system_powerpc_aix,system_powerpc64_aix];
 
        { all real windows systems, no cripple ones like win16, wince, wdosx et. al. }
-       systems_windows = [system_i386_win32,system_x86_64_win64];
+       systems_windows = [system_i386_win32,system_x86_64_win64,system_aarch64_win64];
 
        { all windows systems }
-       systems_all_windows = [system_i386_win32,system_x86_64_win64,
-                             system_arm_wince,system_i386_wince,
+       systems_all_windows = systems_windows+
+                             [system_arm_wince,system_i386_wince,
                              system_i8086_win16];
 
        { all darwin systems }
@@ -300,10 +303,10 @@ interface
                            system_powerpc64_embedded,system_avr_embedded,
                            system_jvm_java32,system_mipseb_embedded,system_mipsel_embedded,
                            system_i8086_embedded,system_riscv32_embedded,system_riscv64_embedded,
-                           system_xtensa_embedded];
+                           system_xtensa_embedded,system_z80_embedded];
 
        { all FreeRTOS systems }
-       systems_freertos = [system_xtensa_freertos];
+       systems_freertos = [system_xtensa_freertos,system_arm_freertos];
 
        { all systems that allow section directive }
        systems_allow_section = systems_embedded;
@@ -354,13 +357,16 @@ interface
                                          system_i386_netwlibc,
                                          system_arm_wince,
                                          system_x86_64_win64,
-                                         system_i8086_win16]+systems_linux+systems_android;
+                                         system_i8086_win16,
+                                         system_aarch64_win64]+systems_linux+systems_android;
 
        { all systems that reference symbols in other binaries using indirect imports }
        systems_indirect_var_imports = systems_all_windows+[system_i386_nativent];
 
        { all systems that support indirect entry information }
-       systems_indirect_entry_information = systems_darwin+[system_i386_win32,system_x86_64_win64,system_x86_64_linux];
+       systems_indirect_entry_information = systems_darwin+
+                                            [system_i386_win32,system_x86_64_win64,system_x86_64_linux,
+                                            system_aarch64_win64];
 
        { all systems for which weak linking has been tested/is supported }
        systems_weak_linking = systems_darwin + systems_solaris + systems_linux + systems_android + systems_openbsd + systems_freebsd;
@@ -371,8 +377,15 @@ interface
                                    system_m68k_atari,system_m68k_palmos,
                                    system_i386_haiku,system_x86_64_haiku,
                                    system_i386_openbsd,system_x86_64_openbsd,
-                                   system_riscv32_linux,system_riscv64_linux
+                                   system_riscv32_linux,system_riscv64_linux,
+                                   system_aarch64_win64,
+                                   system_z80_zxspectrum
                                   ]+systems_darwin+systems_amigalike;
+
+       { all systems that use the PE+ header in the PE/COFF file
+         Note: this is here and not in ogcoff, because it's required in other
+               units as well }
+       systems_peoptplus = [system_x86_64_win64,system_aarch64_win64];
 
        { all systems that use garbage collection for reference-counted types }
        systems_garbage_collected_managed_types = [
@@ -430,7 +443,8 @@ interface
        cpu2str : array[TSystemCpu] of string[10] =
             ('','i386','m68k','alpha','powerpc','sparc','vm','ia64','x86_64',
              'mips','arm', 'powerpc64', 'avr', 'mipsel','jvm', 'i8086',
-             'aarch64', 'wasm', 'sparc64', 'riscv32', 'riscv64', 'xtensa');
+             'aarch64', 'wasm', 'sparc64', 'riscv32', 'riscv64', 'xtensa',
+             'z80');
 
        abiinfo : array[tabi] of tabiinfo = (
          (name: 'DEFAULT'; supported: true),
@@ -447,6 +461,11 @@ interface
          (name: 'LINUX386_SYSV'; supported:{$if defined(i386)}true{$else}false{$endif}),
          (name: 'WINDOWED'; supported:{$if defined(xtensa)}true{$else}false{$endif}),
          (name: 'CALL0'; supported:{$if defined(xtensa)}true{$else}false{$endif})
+       );
+
+       cgbackend2str: array[tcgbackend] of ansistring = (
+         'FPC',
+         'LLVM'
        );
 
        { x86 asm modes with an Intel-style syntax }
@@ -469,6 +488,7 @@ interface
          asmmode_x86_64_att,
          asmmode_x86_64_gas
        ];
+{$pop}
 
     var
        targetinfos   : array[tsystem] of psysteminfo;
@@ -1100,6 +1120,10 @@ begin
       {$define default_target_set}
       default_target(system_aarch64_android);
     {$endif android}
+    {$ifdef windows}
+      {$define default_target_set}
+      default_target(system_aarch64_win64);
+    {$endif}
     {$ifndef default_target_set}
       default_target(system_aarch64_linux);
       {$define default_target_set}
@@ -1109,7 +1133,11 @@ begin
 
 {$ifdef wasm}
   default_target(system_wasm_wasm32);
-{$endif}
+{$endif wasm}
+
+{$ifdef z80}
+  default_target(system_z80_embedded);
+{$endif z80}
 
 {$ifdef riscv32}
   default_target(system_riscv32_linux);
@@ -1120,7 +1148,14 @@ begin
 {$endif riscv64}
 
 {$ifdef xtensa}
+  {$ifdef linux}
+    {$define default_target_set}
+    default_target(system_xtensa_linux);
+  {$endif}
+
+  {$ifndef default_target_set}
   default_target(system_xtensa_embedded);
+  {$endif ndef default_target_set}
 {$endif xtensa}
 
 end;

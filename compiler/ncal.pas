@@ -4144,8 +4144,8 @@ implementation
                               That means the for pushes the para with the
                               highest offset (see para3) needs to be pushed first
                             }
-{$if defined(i386) or defined(i8086) or defined(m68k)}
-                            { the i386, i8086, m68k and jvm code generators expect all reference }
+{$if defined(i386) or defined(i8086) or defined(m68k) or defined(z80)}
+                            { the i386, i8086, m68k, z80 and jvm code generators expect all reference }
                             { parameters to be in this order so they can use   }
                             { pushes in case of no fixed stack                 }
                             if (not paramanager.use_fixed_stack and
@@ -4353,7 +4353,7 @@ implementation
              end;
 
            { can we get rid of the call? }
-           if (cs_opt_remove_emtpy_proc in current_settings.optimizerswitches) and
+           if (cs_opt_remove_empty_proc in current_settings.optimizerswitches) and
               not(cnf_return_value_used in callnodeflags) and
              (procdefinition.typ=procdef) and
              tprocdef(procdefinition).isempty and
@@ -5143,13 +5143,10 @@ implementation
               end;
           end;
 
-        { consider it must not be inlined if called
-          again inside the args or itself }
-        exclude(procdefinition.procoptions,po_inline);
         typecheckpass(tnode(inlineblock));
         doinlinesimplify(tnode(inlineblock));
+        node_reset_flags(tnode(inlineblock),[nf_pass1_done]);
         firstpass(tnode(inlineblock));
-        include(procdefinition.procoptions,po_inline);
         result:=inlineblock;
 
         { if the function result is used then verify that the blocknode

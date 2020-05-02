@@ -224,9 +224,10 @@ const
   ControllerListPlaceholder = '$CONTROLLERTYPES';
   FeatureListPlaceholder = '$FEATURELIST';
   ModeSwitchListPlaceholder = '$MODESWITCHES';
+  CodeGenerationBackendPlaceholder = '$CODEGENERATIONBACKEND';
 
   procedure SplitLine (var OrigString: TCmdStr; const Placeholder: TCmdStr;
-                                                 var RemainderString: TCmdStr);
+                                                 out RemainderString: TCmdStr);
   var
     I: longint;
     HS2: TCmdStr;
@@ -279,8 +280,6 @@ const
         Comment(V_Normal,hs);
        end;
      end;
-    OrigString := HS3;
-    SplitLine (OrigString, OSTargetsPlaceholder, HS3);
   end;
 
   procedure ListCPUInstructionSets (OrigString: TCmdStr);
@@ -319,8 +318,6 @@ const
       Comment(V_Normal,hs);
       hs1:=''
      end;
-    OrigString := HS3;
-    SplitLine (OrigString, CPUListPlaceholder, HS3);
   end;
 
   procedure ListFPUInstructionSets (OrigString: TCmdStr);
@@ -359,8 +356,6 @@ const
       Comment(V_Normal,hs);
       hs1:=''
      end;
-    OrigString := HS3;
-    SplitLine (OrigString, FPUListPlaceholder, HS3);
   end;
 
   procedure ListABITargets (OrigString: TCmdStr);
@@ -385,8 +380,6 @@ const
          end;
        end;
      end;
-    OrigString := HS3;
-    SplitLine (OrigString, ABIListPlaceholder, HS3);
   end;
 
   procedure ListOptimizations (OrigString: TCmdStr);
@@ -412,8 +405,6 @@ const
          end;
        end;
      end;
-    OrigString := HS3;
-    SplitLine (OrigString, OptListPlaceholder, HS3);
   end;
 
   procedure ListWPOptimizations (OrigString: TCmdStr);
@@ -441,8 +432,6 @@ const
          end;
        end;
      end;
-    OrigString := HS3;
-    SplitLine (OrigString, WPOListPlaceholder, HS3);
   end;
 
   procedure ListAsmModes (OrigString: TCmdStr);
@@ -466,8 +455,6 @@ const
          end;
        end;
      end;
-    OrigString := HS3;
-    SplitLine (OrigString, AsmModeListPlaceholder, HS3);
   end;
 
   procedure ListControllerTypes (OrigString: TCmdStr);
@@ -511,8 +498,6 @@ const
         Comment(V_Normal,hs);
         hs1:=''
        end;
-      OrigString := HS3;
-      SplitLine (OrigString, ControllerListPlaceholder, HS3);
      end;
 {$POP}
   end;
@@ -553,8 +538,6 @@ const
       Comment (V_Normal, HS);
       HS1 := ''
      end;
-    OrigString := HS3;
-    SplitLine (OrigString, FeatureListPlaceholder, HS3);
   end;
 
   procedure ListModeswitches (OrigString: TCmdStr);
@@ -593,9 +576,21 @@ const
       Comment (V_Normal, HS);
       HS1 := ''
      end;
-    OrigString := HS3;
-    SplitLine (OrigString, ModeswitchListPlaceholder, HS3);
   end;
+
+  procedure ListCodeGenerationBackend (OrigString: TCmdStr);
+    begin
+      SplitLine (OrigString, CodeGenerationBackendPlaceholder, HS3);
+      hs1:=cgbackend2str[cgbackend];
+      if OrigString = '' then
+        Comment (V_Normal, hs1)
+      else
+        begin
+          hs:=OrigString;
+          Replace(hs,CodeGenerationBackendPlaceholder,hs1);
+          Comment(V_Normal,hs);
+        end;
+    end;
 
 begin
   if More = '' then
@@ -626,6 +621,8 @@ begin
        ListControllerTypes (S)
       else if pos(FeatureListPlaceholder,s)>0 then
        ListFeatures (S)
+      else if pos(CodeGenerationBackendPlaceholder,s)>0 then
+       ListCodeGenerationBackend (S)
       else
        Comment(V_Normal,s);
      end;
@@ -639,6 +636,7 @@ begin
        Comment(V_Normal,'');  (* Put empty line between multiple sections *)
       case More [J] of
        'a': ListABITargets ('');
+       'b': Comment(V_Normal, cgbackend2str[cgbackend]);
        'c': ListCPUInstructionSets ('');
        'f': ListFPUInstructionSets ('');
        'i': ListAsmModes ('');
@@ -759,6 +757,9 @@ begin
 {$endif}
 {$ifdef llvm}
       'L',
+{$endif}
+{$ifdef z80}
+      'Z',
 {$endif}
       '*' : show:=true;
      end;
@@ -1918,7 +1919,7 @@ begin
            'i' :
              begin
                if (More='') or
-                    (More [1] in ['a', 'c', 'f', 'i', 'm', 'o', 'r', 't', 'u', 'w']) then
+                    (More [1] in ['a', 'b', 'c', 'f', 'i', 'm', 'o', 'r', 't', 'u', 'w']) then
                  WriteInfo (More)
                else
                  QuickInfo:=QuickInfo+More;
@@ -3362,6 +3363,8 @@ begin
       lets disable the feature. }
     system_m68k_amiga:
       target_unsup_features:=[f_dynlibs];
+    system_z80_zxspectrum:
+      target_unsup_features:=[f_threading,f_dynlibs{,f_fileio,f_textio},f_commandargs,f_exitcode];
     else
       target_unsup_features:=[];
   end;
@@ -3785,6 +3788,13 @@ procedure read_arguments(cmd:TCmdStr);
         def_system_macro('FPC_REQUIRES_PROPER_ALIGNMENT');
       {$endif xtensa}
 
+      {$ifdef z80}
+        def_system_macro('CPUZ80');
+        def_system_macro('CPU16');
+        def_system_macro('FPC_CURRENCY_IS_INT64');
+        def_system_macro('FPC_COMP_IS_INT64');
+      {$endif z80}
+
       {$if defined(cpu8bitalu)}
         def_system_macro('CPUINT8');
       {$elseif defined(cpu16bitalu)}
@@ -3942,7 +3952,7 @@ begin
     end;
 
   { Set up default value for the heap }
-  if target_info.system in systems_embedded then
+  if target_info.system in (systems_embedded+systems_freertos+[system_z80_zxspectrum]) then
     begin
       case target_info.system of
 {$ifdef AVR}
@@ -3952,6 +3962,11 @@ begin
           else
             heapsize:=128;
 {$endif AVR}
+        system_arm_freertos:
+          heapsize:=8192;
+        system_xtensa_freertos:
+          { keep default value }
+          ;
         system_arm_embedded:
           heapsize:=256;
         system_mipsel_embedded:
@@ -4238,7 +4253,8 @@ begin
      ((target_info.system in [system_arm_wince,system_arm_gba,
          system_m68k_amiga,system_m68k_atari,
          system_arm_nds,system_arm_embedded,
-         system_riscv32_embedded,system_riscv64_embedded,system_xtensa_embedded])
+         system_riscv32_embedded,system_riscv64_embedded,system_xtensa_embedded,
+         system_z80_embedded,system_z80_zxspectrum])
 {$ifdef arm}
       or (target_info.abi=abi_eabi)
 {$endif arm}
@@ -4605,7 +4621,7 @@ begin
 
   { Section smartlinking conflicts with import sections on Windows }
   if GenerateImportSection and
-     (target_info.system in [system_i386_win32,system_x86_64_win64]) then
+     (target_info.system in [system_i386_win32,system_x86_64_win64,system_aarch64_win64]) then
     exclude(target_info.flags,tf_smartlink_sections);
 
   if not option.LinkTypeSetExplicitly then
@@ -4677,7 +4693,7 @@ begin
   option.free;
   Option:=nil;
 
-  clearstack_pocalls := [pocall_cdecl,pocall_cppdecl,pocall_syscall,pocall_mwpascal,pocall_sysv_abi_cdecl,pocall_ms_abi_cdecl];
+  clearstack_pocalls := [pocall_cdecl,pocall_cppdecl,pocall_syscall,pocall_mwpascal,pocall_sysv_abi_cdecl,pocall_ms_abi_cdecl{$ifdef z80},pocall_stdcall{$endif}];
   cdecl_pocalls := [pocall_cdecl, pocall_cppdecl, pocall_mwpascal, pocall_sysv_abi_cdecl, pocall_ms_abi_cdecl];
   if (tf_safecall_clearstack in target_info.flags) then
     begin

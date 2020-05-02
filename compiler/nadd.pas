@@ -484,6 +484,7 @@ implementation
         begin
           result:=getcopy;
           result.resultdef:=nil;
+          result:=ctypeconvnode.create_internal(result,resultdef);
           do_typecheckpass(result);
         end;
 
@@ -783,7 +784,7 @@ implementation
                           { keep the order of val+const else pointer operations might cause an error }
                           hp:=taddnode(left).left;
                           taddnode(left).left:=right;
-                          left:=left.simplify(false);
+                          left:=left.simplify(forinline);
                           right:=left;
                           left:=hp;
                           result:=GetCopyAndTypeCheck;
@@ -4003,6 +4004,10 @@ implementation
                      result := nil;
 
                      case torddef(resultdef).ordtype of
+                       s8bit:
+                         procname := 'fpc_mul_shortint';
+                       u8bit:
+                         procname := 'fpc_mul_byte';
                        s16bit:
                          procname := 'fpc_mul_integer';
                        u16bit:
@@ -4158,19 +4163,29 @@ implementation
 
          else if is_implicit_pointer_object_type(ld) then
             begin
-              expectloc:=LOC_FLAGS;
+              if ld.size>sizeof(aint) then
+                expectloc:=LOC_JUMP
+              else
+                expectloc:=LOC_FLAGS;
             end
 
          else if (ld.typ=classrefdef) then
             begin
-              expectloc:=LOC_FLAGS;
+              if ld.size>sizeof(aint) then
+                expectloc:=LOC_JUMP
+              else
+                expectloc:=LOC_FLAGS;
             end
 
          { support procvar=nil,procvar<>nil }
          else if ((ld.typ=procvardef) and (rt=niln)) or
                  ((rd.typ=procvardef) and (lt=niln)) then
             begin
-              expectloc:=LOC_FLAGS;
+              if (ld.typ=procvardef) and (tprocvardef(ld).size>sizeof(aint)) or
+                 (rd.typ=procvardef) and (tprocvardef(rd).size>sizeof(aint)) then
+                expectloc:=LOC_JUMP
+              else
+                expectloc:=LOC_FLAGS;
             end
 
 {$ifdef SUPPORT_MMX}
@@ -4192,12 +4207,18 @@ implementation
                   (ld.typ=procvardef) and
                   equal_defs(rd,ld) then
            begin
-             expectloc:=LOC_FLAGS;
+             if tprocvardef(ld).size>sizeof(aint) then
+               expectloc:=LOC_JUMP
+             else
+               expectloc:=LOC_FLAGS;
            end
 
          else if (ld.typ=enumdef) then
            begin
-              expectloc:=LOC_FLAGS;
+              if tenumdef(ld).size>sizeof(aint) then
+                expectloc:=LOC_JUMP
+              else
+                expectloc:=LOC_FLAGS;
            end
 
 {$ifdef SUPPORT_MMX}

@@ -295,6 +295,23 @@
   {$define cpurequiresproperalignment}
 {$endif riscv32}
 
+{$ifdef z80}
+  {$define cpu8bit}
+  {$define cpu16bitaddr}
+  {$define cpu8bitalu}
+  {$define cpufpemu}
+  {$define cpuflags}
+  {$define cpunofpu}
+  {$define cpunodefaultint}
+  {$define cpuneedsdivhelper}
+  {$define cpuneedsmulhelper}
+  {$define cpucapabilities}
+{$endif z80}
+
+{$IFDEF MACOS}
+{$DEFINE USE_FAKE_SYSUTILS}
+{$ENDIF MACOS}
+
 {$ifdef riscv64}
   {$define riscv}
   {$define cpu64bit}
@@ -334,6 +351,11 @@
 {$ifndef FPC_SOFT_FPUX80}
 {$error Cross-compiling from systems without support for an 80 bit extended floating point type to i386 is not yet supported at this time }
 {$endif}
+{$endif}
+
+{ when compiling with an LLVM-based compiler, default to LLVM unless -dNOLLVM is specified }
+{$if defined(CPULLVM) and not defined(NOLLVM)}
+{$define LLVM}
 {$endif}
 
 { llvm backends partially use other backends for parameter info calculation,

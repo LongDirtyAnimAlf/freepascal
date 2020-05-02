@@ -231,6 +231,9 @@ type
    procedure SetLastError(dwErrCode : DWORD);
      {$ifdef wince}cdecl{$else}stdcall{$endif};external KernelDLL name 'SetLastError';
 
+   procedure RaiseException(dwExceptionCode: DWORD; dwExceptionFlags: DWORD; dwArgCount: DWORD; lpArguments: Pointer);
+     {$ifdef wince}cdecl{$else}stdcall{$endif}; external KernelDLL name 'RaiseException';
+
    { time and date functions }
    function GetTickCount : DWORD;
      {$ifdef wince}cdecl{$else}stdcall{$endif};external KernelDLL name 'GetTickCount';
@@ -246,15 +249,14 @@ type
    function GetStdHandle(nStdHandle:DWORD):THANDLE;
      stdcall;external KernelDLL name 'GetStdHandle';
 
-   {$ifdef FPC_UNICODE_RTLx}
    { command line/environment functions }
 
-   function GetCommandLine : pwidechar;
+  function GetCommandLineW : pwidechar;
      stdcall;external KernelDLL name 'GetCommandLineW';
-   {$else}
-   function GetCommandLine : pchar;
+  function GetCommandLineA : pansichar;
      stdcall;external KernelDLL name 'GetCommandLineA';
-   {$endif}
+  function CommandLineToArgvW(lpCmdLine: PWideChar; out pNumArgs: longint): PPWideChar;
+     stdcall; external 'shell32.dll' name 'CommandLineToArgvW';
 
   function GetCurrentProcessId:DWORD;
     stdcall; external KernelDLL name 'GetCurrentProcessId';
@@ -269,8 +271,8 @@ type
     stdcall;external 'kernel32' name 'ReadProcessMemory';
 
   { module functions }
-  function GetModuleFileName(l1:THandle;p:PChar;l2:longint):longint;
-    stdcall;external KernelDLL name 'GetModuleFileNameA';
+  function GetModuleFileNameW(l1:THandle;p:PWideChar;l2:longint):longint;
+    stdcall;external KernelDLL name 'GetModuleFileNameW';
 
   function GetModuleHandle(p : PChar) : THandle;
     stdcall;external KernelDLL name 'GetModuleHandleA';
@@ -359,6 +361,8 @@ type
      stdcall; external 'oleaut32.dll' name 'SysFreeString';
    function SysReAllocStringLen(var bstr:pointer;psz: pointer;
      len:dword): Integer; stdcall;external 'oleaut32.dll' name 'SysReAllocStringLen';
+   function GlobalFree(hMem: pointer): pointer;
+     stdcall; external KernelDLL name 'GlobalFree';
 {$endif WINCE}
 
    Procedure Errno2InOutRes(oserror: longword);

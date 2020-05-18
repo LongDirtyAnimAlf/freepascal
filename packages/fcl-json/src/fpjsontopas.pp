@@ -397,7 +397,8 @@ begin
   if (S<>'') and (S[1]<>',') then
     S:=', '+S;
   if jpoDelphiJSON in Options then
-    S:='JSON'+S
+    // Collections to avoid warnings about unexpanded inlines
+    S:='System.Generics.Collections, JSON'+S
   else
     S:='fpJSON'+S;
   S:='SysUtils, Classes, '+S;
@@ -742,7 +743,7 @@ begin
   AddLn('');
   AddLn('begin');
   Indent;
-  AddLn('For I:=0 to Length(anArray) do');
+  AddLn('For I:=0 to Length(anArray)-1 do');
   Indent;
   if IM.JSONType=jtObject then
     AddLn('FreeAndNil(anArray[I]);')

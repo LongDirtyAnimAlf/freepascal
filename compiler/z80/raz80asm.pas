@@ -288,16 +288,6 @@ Unit raz80asm;
                   actasmpattern[0]:=chr(len);
                   actasmpattern_origcase:=actasmpattern;
                   uppervar(actasmpattern);
- {$ifdef x86}
-                  { only x86 architectures have instruction prefixes }
-
-                  { Opcode, can only be when the previous was a prefix }
-                  If is_prefix(actopcode) and is_asmopcode(actasmpattern) then
-                   Begin
-                     uppervar(actasmpattern);
-                     exit;
-                   end;
- {$endif x86}
                   { check for end which is a reserved word unlike the opcodes }
                   if actasmpattern = 'END' then
                     begin
@@ -327,6 +317,12 @@ Unit raz80asm;
                   if is_register(actasmpattern) then
                     begin
                       actasmtoken:=AS_REGISTER;
+                      { is it an alternate register? }
+                      if (c='''') and is_register(actasmpattern+'''') then
+                        begin
+                          actasmpattern:=actasmpattern+c;
+                          c:=current_scanner.asmgetchar;
+                        end;
                       exit;
                     end;
                   { if next is a '.' and this is a unitsym then we also need to

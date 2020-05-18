@@ -109,9 +109,13 @@ uses
          { next fields are filled in pass1, so pass2 is faster }
          insentry  : PInsEntry;
          inssize   : shortint;
+         insoffset : longint;
+         LastInsOffset : longint;
 
          function Matches(p:PInsEntry):boolean;
          function FindInsentry(objdata:TObjData):boolean;
+         function calcsize(p:PInsEntry):shortint;
+         procedure gencode(objdata:TObjData);
       public
          constructor op_none(op : tasmop);
 
@@ -137,6 +141,10 @@ uses
          { register spilling code }
          function spilling_get_operation_type(opnr: longint): topertype;override;
 
+         procedure ResetPass1;override;
+         procedure ResetPass2;override;
+         function  Pass1(objdata:TObjData):longint;override;
+         procedure Pass2(objdata:TObjData);override;
          function CheckIfValid:boolean;
          function GetString:string;
       end;
@@ -205,12 +213,12 @@ implementation
             OT_IMM3:
               result:=(oper.typ=top_const) and (oper.val>=0) and (oper.val<=7);
             OT_IMM8:
-              result:=((oper.typ=top_const) and (oper.val>=0) and (oper.val<=255)) or
+              result:=((oper.typ=top_const) and (oper.val>=-128) and (oper.val<=255)) or
                       ((oper.typ=top_ref) and
                        (oper.ref^.refaddr in [addr_hi8,addr_lo8]) and assigned(oper.ref^.symbol) and
                        (oper.ref^.base=NR_NO) and (oper.ref^.index=NR_NO));
             OT_IMM16:
-              result:=((oper.typ=top_const) and (oper.val>=0) and (oper.val<=65535)) or
+              result:=((oper.typ=top_const) and (oper.val>=-32768) and (oper.val<=65535)) or
                       ((oper.typ=top_ref) and
                        (oper.ref^.refaddr=addr_full) and assigned(oper.ref^.symbol) and
                        (oper.ref^.base=NR_NO) and (oper.ref^.index=NR_NO));
@@ -401,6 +409,536 @@ implementation
       end;
 
 
+    function taicpu.calcsize(p: PInsEntry): shortint;
+      var
+        code, token: string;
+        i: Integer;
+        ch: Char;
+      begin
+        result:=0;
+        code:=insentry^.code;
+        i:=1;
+        token:='';
+        while i<=length(code) do
+          begin
+            ch:=code[i];
+            Inc(i);
+            if ch<>',' then
+              token:=token+ch;
+            if (ch=',') or (i>length(code)) then
+              begin
+                if token='' then
+                  internalerror(2020050402);
+                if (token[1]='$') or (token[1]='%') or (token='n') or (token='d') or (token='e') then
+                  Inc(result)
+                else if token='nn' then
+                  Inc(result,2)
+                else
+                  internalerror(2020050504);
+                token:='';
+              end;
+          end;
+      end;
+
+
+    procedure taicpu.gencode(objdata: TObjData);
+
+      procedure WriteByte(b: byte);
+        begin
+          objdata.writebytes(b,1);
+        end;
+
+      procedure WriteWord(w: word);
+        var
+          bytes: array [0..1] of Byte;
+        begin
+          bytes[0]:=Byte(w);
+          bytes[1]:=Byte(w shr 8);
+          objdata.writebytes(bytes,2);
+        end;
+
+      procedure WriteNN;
+        var
+          i, j: Integer;
+        begin
+          for j:=0 to insentry^.ops-1 do
+            begin
+              if condition=C_NONE then
+                i:=j
+              else
+                i:=j-1;
+              if insentry^.optypes[j]=OT_IMM16 then
+                begin
+                  case oper[i]^.typ of
+                    top_const:
+                      begin
+                        WriteWord(Word(oper[i]^.val));
+                        exit;
+                      end;
+                    top_ref:
+                      begin
+                        if (oper[i]^.ref^.base<>NR_NO) or (oper[i]^.ref^.index<>NR_NO) then
+                          internalerror(2020050406);
+                        if Assigned(oper[i]^.ref^.symbol) then
+                          begin
+                            if oper[i]^.ref^.refaddr<>addr_full then
+                              internalerror(2020050407);
+                            objdata.writeReloc(oper[i]^.ref^.offset,2,ObjData.symbolref(oper[i]^.ref^.symbol),RELOC_ABSOLUTE);
+                            exit;
+                          end
+                        else
+                          begin
+                            WriteWord(oper[i]^.ref^.offset);
+                            exit;
+                          end;
+                      end;
+                    else
+                      InternalError(2020050404);
+                  end;
+                end
+              else if insentry^.optypes[j]=OT_REF_ADDR16 then
+                begin
+                  case oper[i]^.typ of
+                    top_ref:
+                      begin
+                        if (oper[i]^.ref^.base<>NR_NO) or (oper[i]^.ref^.index<>NR_NO) then
+                          internalerror(2020050603);
+                        if Assigned(oper[i]^.ref^.symbol) then
+                          begin
+                            if oper[i]^.ref^.refaddr<>addr_no then
+                              internalerror(2020050604);
+                            objdata.writeReloc(oper[i]^.ref^.offset,2,ObjData.symbolref(oper[i]^.ref^.symbol),RELOC_ABSOLUTE);
+                            exit;
+                          end
+                        else
+                          begin
+                            WriteWord(oper[i]^.ref^.offset);
+                            exit;
+                          end;
+                      end;
+                    else
+                      InternalError(2020050602);
+                  end;
+                end;
+            end;
+          InternalError(2020050403);
+        end;
+
+      procedure WriteN;
+        var
+          i: Integer;
+        begin
+          for i:=0 to insentry^.ops-1 do
+            begin
+              if insentry^.optypes[i]=OT_IMM8 then
+                begin
+                  case oper[i]^.typ of
+                    top_const:
+                      begin
+                        WriteByte(Byte(oper[i]^.val));
+                        exit;
+                      end;
+                    top_ref:
+                      begin
+                        if (oper[i]^.ref^.base<>NR_NO) or (oper[i]^.ref^.index<>NR_NO) then
+                          internalerror(2020050507);
+                        if Assigned(oper[i]^.ref^.symbol) then
+                          begin
+                            case oper[i]^.ref^.refaddr of
+                              addr_hi8:
+                                objdata.writeReloc(oper[i]^.ref^.offset,1,ObjData.symbolref(oper[i]^.ref^.symbol),RELOC_ABSOLUTE_HI8);
+                              addr_lo8:
+                                objdata.writeReloc(oper[i]^.ref^.offset,1,ObjData.symbolref(oper[i]^.ref^.symbol),RELOC_ABSOLUTE_LO8);
+                              else
+                                internalerror(2020050408);
+                            end;
+                            exit;
+                          end
+                        else
+                          internalerror(2020050409);
+                      end;
+                    else
+                      InternalError(2020050506);
+                  end;
+                end
+              else if insentry^.optypes[i]=OT_IMM_PORT then
+                begin
+                  case oper[i]^.typ of
+                    top_ref:
+                      begin
+                        if (oper[i]^.ref^.base<>NR_NO) or (oper[i]^.ref^.index<>NR_NO) or Assigned(oper[i]^.ref^.symbol) then
+                          internalerror(2020050612);
+                        WriteByte(Byte(oper[i]^.ref^.offset));
+                        exit;
+                      end;
+                    else
+                      InternalError(2020050611);
+                  end;
+                end;
+            end;
+          InternalError(2020050505);
+        end;
+
+      procedure WriteD;
+        var
+          i: Integer;
+        begin
+          for i:=0 to insentry^.ops-1 do
+            begin
+              if insentry^.optypes[i] in [OT_REF_IX_d,OT_REF_IY_d] then
+                begin
+                  case oper[i]^.typ of
+                    top_ref:
+                      begin
+                        if not is_ref_opertype(oper[i]^.ref^,insentry^.optypes[i]) then
+                          internalerror(2020050510);
+                        WriteByte(Byte(oper[i]^.ref^.offset));
+                        exit;
+                      end;
+                    else
+                      InternalError(2020050511);
+                  end;
+                end;
+            end;
+          InternalError(2020050512);
+        end;
+
+      procedure WriteE;
+        var
+          i, j: Integer;
+        begin
+          for j:=0 to insentry^.ops-1 do
+            begin
+              if condition=C_NONE then
+                i:=j
+              else
+                i:=j-1;
+              if insentry^.optypes[j]=OT_RELJMP8 then
+                begin
+                  case oper[i]^.typ of
+                    top_ref:
+                      begin
+                        if (oper[i]^.ref^.base<>NR_NO) or (oper[i]^.ref^.index<>NR_NO) then
+                          internalerror(2020050608);
+                        if Assigned(oper[i]^.ref^.symbol) then
+                          begin
+                            if oper[i]^.ref^.refaddr<>addr_full then
+                              internalerror(2020050609);
+                            objdata.writeReloc(oper[i]^.ref^.offset,1,ObjData.symbolref(oper[i]^.ref^.symbol),RELOC_RELATIVE);
+                            exit;
+                          end
+                        else
+                          internalerror(2020050610);
+                        exit;
+                      end;
+                    else
+                      InternalError(2020050607);
+                  end;
+                end;
+            end;
+        end;
+
+      function EvalMaskCode(const maskcode: string): byte;
+        var
+          i: Integer;
+        begin
+          case maskcode of
+            'dd':
+              for i:=0 to insentry^.ops-1 do
+                if insentry^.optypes[i]=OT_REG16_BC_DE_HL_SP then
+                  begin
+                    if oper[i]^.typ<>top_reg then
+                      internalerror(2020050410);
+                    case oper[i]^.reg of
+                      NR_BC:
+                        result:=0;
+                      NR_DE:
+                        result:=1;
+                      NR_HL:
+                        result:=2;
+                      NR_SP:
+                        result:=3;
+                      else
+                        internalerror(2020050411);
+                    end;
+                  end;
+            'qq':
+              for i:=0 to insentry^.ops-1 do
+                if insentry^.optypes[i]=OT_REG16_BC_DE_HL_AF then
+                  begin
+                    if oper[i]^.typ<>top_reg then
+                      internalerror(2020050412);
+                    case oper[i]^.reg of
+                      NR_BC:
+                        result:=0;
+                      NR_DE:
+                        result:=1;
+                      NR_HL:
+                        result:=2;
+                      NR_AF:
+                        result:=3;
+                      else
+                        internalerror(2020050413);
+                    end;
+                  end;
+            'pp':
+              for i:=0 to insentry^.ops-1 do
+                if insentry^.optypes[i]=OT_REG16_BC_DE_IX_SP then
+                  begin
+                    if oper[i]^.typ<>top_reg then
+                      internalerror(2020050414);
+                    case oper[i]^.reg of
+                      NR_BC:
+                        result:=0;
+                      NR_DE:
+                        result:=1;
+                      NR_IX:
+                        result:=2;
+                      NR_SP:
+                        result:=3;
+                      else
+                        internalerror(2020050415);
+                    end;
+                  end;
+            'rr':
+              for i:=0 to insentry^.ops-1 do
+                if insentry^.optypes[i]=OT_REG16_BC_DE_IY_SP then
+                  begin
+                    if oper[i]^.typ<>top_reg then
+                      internalerror(2020050416);
+                    case oper[i]^.reg of
+                      NR_BC:
+                        result:=0;
+                      NR_DE:
+                        result:=1;
+                      NR_IY:
+                        result:=2;
+                      NR_SP:
+                        result:=3;
+                      else
+                        internalerror(2020050417);
+                    end;
+                  end;
+            'rrr':
+              for i:=0 to insentry^.ops-1 do
+                if insentry^.optypes[i]=OT_REG8 then
+                  begin
+                    if oper[i]^.typ<>top_reg then
+                      internalerror(2020050418);
+                    case oper[i]^.reg of
+                      NR_A:
+                        result:=7;
+                      NR_B:
+                        result:=0;
+                      NR_C:
+                        result:=1;
+                      NR_D:
+                        result:=2;
+                      NR_E:
+                        result:=3;
+                      NR_H:
+                        result:=4;
+                      NR_L:
+                        result:=5;
+                      else
+                        internalerror(2020050419);
+                    end;
+                  end;
+            'rrrRRR':
+              begin
+                if ops<>2 then
+                  internalerror(2020050420);
+                if (insentry^.optypes[0]<>OT_REG8) or (insentry^.optypes[1]<>OT_REG8) then
+                  internalerror(2020050421);
+                if (oper[0]^.typ<>top_reg) or (oper[1]^.typ<>top_reg) then
+                  internalerror(2020050422);
+                case oper[0]^.reg of
+                  NR_A:
+                    result:=7 shl 3;
+                  NR_B:
+                    result:=0 shl 3;
+                  NR_C:
+                    result:=1 shl 3;
+                  NR_D:
+                    result:=2 shl 3;
+                  NR_E:
+                    result:=3 shl 3;
+                  NR_H:
+                    result:=4 shl 3;
+                  NR_L:
+                    result:=5 shl 3;
+                  else
+                    internalerror(2020050419);
+                end;
+                case oper[1]^.reg of
+                  NR_A:
+                    result:=result or 7;
+                  NR_B:
+                    result:=result or 0;
+                  NR_C:
+                    result:=result or 1;
+                  NR_D:
+                    result:=result or 2;
+                  NR_E:
+                    result:=result or 3;
+                  NR_H:
+                    result:=result or 4;
+                  NR_L:
+                    result:=result or 5;
+                  else
+                    internalerror(2020050419);
+                end;
+              end;
+            'ccc':
+              begin
+                case condition of
+                  C_NZ:
+                    result:=0;
+                  C_Z:
+                    result:=1;
+                  C_NC:
+                    result:=2;
+                  C_C:
+                    result:=3;
+                  C_PO:
+                    result:=4;
+                  C_PE:
+                    result:=5;
+                  C_P:
+                    result:=6;
+                  C_M:
+                    result:=7;
+                  else
+                    internalerror(2020050605);
+                end;
+              end;
+            'ppp':
+              begin
+                for i:=0 to insentry^.ops-1 do
+                  if insentry^.optypes[i]=OT_IMM_RST then
+                    begin
+                      if oper[i]^.typ<>top_const then
+                        internalerror(2020050606);
+                      result:=Byte(oper[i]^.val shr 3) and $07;
+                    end;
+              end;
+            'bbb':
+              begin
+                for i:=0 to insentry^.ops-1 do
+                  if insentry^.optypes[i]=OT_IMM3 then
+                    begin
+                      if oper[i]^.typ<>top_const then
+                        internalerror(2020050606);
+                      result:=Byte(oper[i]^.val) and $07;
+                    end;
+              end;
+            'bbbrrr':
+              result:=(EvalMaskCode('bbb') shl 3) or EvalMaskCode('rrr');
+            else
+              internalerror(2020050409);
+          end;
+        end;
+
+      procedure HandlePercent(token: string);
+        var
+          bincode: string;
+          maskcode: string;
+          i, valcode, shiftcount: integer;
+          b: Byte;
+        begin
+          bincode:='';
+          maskcode:='';
+          for i:=1 to length(token) do
+            case token[i] of
+              '%':
+                bincode:=bincode+'%';
+              '0':
+                begin
+                  bincode:=bincode+'0';
+                  maskcode:=maskcode+'0';
+                end;
+              '1':
+                begin
+                  bincode:=bincode+'1';
+                  maskcode:=maskcode+'0';
+                end;
+              'p','d','r','q','c','b':
+                begin
+                  bincode:=bincode+'0';
+                  maskcode:=maskcode+token[i];
+                end;
+              '''':
+                begin
+                  if (maskcode='') or (maskcode[length(maskcode)]<>'r') then
+                    internalerror(2020050408);
+                  maskcode[length(maskcode)]:='R';
+                end;
+              else
+                internalerror(2020050405);
+            end;
+          Val(bincode,b,valcode);
+          while maskcode[1]='0' do
+            delete(maskcode,1,1);
+          shiftcount:=0;
+          while maskcode[length(maskcode)]='0' do
+            begin
+              delete(maskcode,length(maskcode),1);
+              Inc(shiftcount);
+            end;
+          b:=b or (EvalMaskCode(maskcode) shl shiftcount);
+          objdata.writebytes(b,1);
+        end;
+
+      var
+        i: Integer;
+        ch: Char;
+        b: Byte;
+        valcode: integer;
+        code: string;
+        token: string;
+      begin
+        { safety check }
+        if objdata.currobjsec.size<>longword(insoffset) then
+          internalerror(2020050401);
+
+        code:=insentry^.code;
+        i:=1;
+        token:='';
+        while i<=length(code) do
+          begin
+            ch:=code[i];
+            Inc(i);
+            if ch<>',' then
+              token:=token+ch;
+            if (ch=',') or (i>length(code)) then
+              begin
+                if token='' then
+                  internalerror(2020050402);
+                if token[1]='$' then
+                  begin
+                    Val(token,b,valcode);
+                    WriteByte(b);
+                  end
+                else if token[1]='%' then
+                  begin
+                    HandlePercent(token);
+                  end
+                else if token='nn' then
+                  WriteNN
+                else if token='n' then
+                  WriteN
+                else if token='d' then
+                  WriteD
+                else if token='e' then
+                  WriteE
+                else
+                  internalerror(2020050503);
+                token:='';
+              end;
+          end;
+      end;
+
+
     constructor taicpu.op_none(op : tasmop);
       begin
          inherited create(op);
@@ -555,6 +1093,64 @@ implementation
                 result:=operand_readwrite;
             end;
         end;
+      end;
+
+
+    procedure taicpu.ResetPass1;
+      begin
+        { we need to reset everything here, because the choosen insentry
+          can be invalid for a new situation where the previously optimized
+          insentry is not correct }
+        InsEntry:=nil;
+        InsSize:=0;
+        LastInsOffset:=-1;
+      end;
+
+
+    procedure taicpu.ResetPass2;
+      begin
+        { we are here in a second pass, check if the instruction can be optimized }
+        {if assigned(InsEntry) and
+           (IF_PASS2 in InsEntry^.flags) then
+         begin
+           InsEntry:=nil;
+           InsSize:=0;
+         end;}
+        LastInsOffset:=-1;
+      end;
+
+
+    function taicpu.Pass1(objdata: TObjData): longint;
+      begin
+        Pass1:=0;
+        { Save the old offset and set the new offset }
+        InsOffset:=ObjData.CurrObjSec.Size;
+        { Error? }
+        if (Insentry=nil) and (InsSize=-1) then
+          exit;
+        { set the file postion }
+        current_filepos:=fileinfo;
+        { Get InsEntry }
+        if FindInsEntry(ObjData) then
+          begin
+            { Calculate instruction size }
+            InsSize:=calcsize(insentry);
+            LastInsOffset:=InsOffset;
+            Pass1:=InsSize;
+            exit;
+          end;
+        LastInsOffset:=-1;
+      end;
+
+
+    procedure taicpu.Pass2(objdata: TObjData);
+      begin
+        { error in pass1 ? }
+        if insentry=nil then
+         exit;
+        current_filepos:=fileinfo;
+        { Generate the instruction }
+        GenCode(objdata);
       end;
 
 

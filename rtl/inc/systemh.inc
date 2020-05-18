@@ -117,9 +117,6 @@ Type
   Real = type Double;
 {$endif}
 
-{ Can be individually defined/undefined on a per-platform basis }
-{ define FLOAT_ASCII_FALLBACK}
-
 {$ifdef CPUI386}
   {$define CPU32}
 
@@ -1672,9 +1669,7 @@ const
                            RTTI support
 *****************************************************************************}
 
-{$ifdef FPC_HAS_FEATURE_RTTI}
 {$i rttih.inc}
-{$endif FPC_HAS_FEATURE_RTTI}
 
 {*****************************************************************************
                        Object Pascal support

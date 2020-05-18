@@ -2,7 +2,7 @@
     This file is part of the Free Component Library
 
     Pascal resolver
-    Copyright (c) 2019  Mattias Gaertner  mattias@freepascal.org
+    Copyright (c) 2020  Mattias Gaertner  mattias@freepascal.org
 
     See the file COPYING.FPC, included in this distribution,
     for details about the copyright.
@@ -324,7 +324,7 @@ uses
   {$ifdef pas2js}
   js,
   {$IFDEF NODEJS}
-  NodeJSFS,
+  Node.FS,
   {$ENDIF}
   {$endif}
   Classes, SysUtils, Math, Types, contnrs,
@@ -1426,7 +1426,8 @@ type
     //ToDo: proStaticArrayCopy, // copy works with static arrays, returning a dynamic array
     //ToDo: proStaticArrayConcat, // concat works with static arrays, returning a dynamic array
     proProcTypeWithoutIsNested, // proc types can use nested procs without 'is nested'
-    proMethodAddrAsPointer   // can assign @method to a pointer
+    proMethodAddrAsPointer,  // can assign @method to a pointer
+    proSafecallAllowsDefault // allow assigning a default calling convetnion to a SafeCall proc
     );
   TPasResolverOptions = set of TPasResolverOption;
 
@@ -2216,7 +2217,7 @@ type
       ErrorEl: TPasElement; RaiseOnIncompatible: boolean): integer;
     function CheckEqualCompatibilityUserType(
       const LHS, RHS: TPasResolverResult; ErrorEl: TPasElement;
-      RaiseOnIncompatible: boolean): integer; // LHS.BaseType=btContext=RHS.BaseType and both rrfReadable
+      RaiseOnIncompatible: boolean): integer; virtual; // LHS.BaseType=btContext=RHS.BaseType and both rrfReadable
     function CheckTypeCast(El: TPasType; Params: TParamsExpr; RaiseOnError: boolean): integer;
     function CheckTypeCastRes(const FromResolved, ToResolved: TPasResolverResult;
       ErrorEl: TPasElement; RaiseOnError: boolean): integer; virtual;
@@ -14988,7 +14989,7 @@ var
 begin
   Result:=nil;
   if not (Expr.CustomData is TResolvedReference) then
-    RaiseNotYetImplemented(20170518203134,Expr);
+    RaiseNotYetImplemented(20170518203134,Expr,GetObjName(Expr.CustomData));
   Ref:=TResolvedReference(Expr.CustomData);
   Decl:=Ref.Declaration;
   {$IFDEF VerbosePasResEval}
@@ -23178,10 +23179,17 @@ begin
     end;
   if Proc1.CallingConvention<>Proc2.CallingConvention then
     begin
-    if RaiseOnIncompatible then
-      RaiseMsg(20170402112253,nCallingConventionMismatch,sCallingConventionMismatch,
-        [],ErrorEl);
-    exit;
+    if (proSafecallAllowsDefault in Options)
+        and (Proc1.CallingConvention=ccSafeCall)
+        and (Proc2.CallingConvention=ccDefault) then
+      // ok
+    else
+      begin
+      if RaiseOnIncompatible then
+        RaiseMsg(20170402112253,nCallingConventionMismatch,sCallingConventionMismatch,
+          [],ErrorEl);
+      exit;
+      end;
     end;
   ProcArgs1:=Proc1.Args;
   ProcArgs2:=Proc2.Args;
@@ -25647,8 +25655,18 @@ function TPasResolver.CheckAssignCompatibilityArrayType(const LHS,
   procedure CheckRange(ArrType: TPasArrayType; RangeIndex: integer;
     Values: TPasResolverResult; ErrorEl: TPasElement);
   var
+    ElTypeResolved: TPasResolverResult;
+
+    procedure CheckArrOfCharAssignString;
+    begin
+      ComputeElement(ArrType.ElType,ElTypeResolved,[rcType]);
+      if ElTypeResolved.BaseType in btAllChars then
+        Result:=cTypeConversion; // ArrOfChar:=aString
+    end;
+
+  var
     Range, Value, Expr: TPasExpr;
-    RangeResolved, ValueResolved, ElTypeResolved: TPasResolverResult;
+    RangeResolved, ValueResolved: TPasResolverResult;
     i, ExpectedCount, ValCnt: Integer;
     IsLastRange, IsConstExpr: Boolean;
     ArrayValues: TPasExprArray;
@@ -25752,19 +25770,18 @@ function TPasResolver.CheckAssignCompatibilityArrayType(const LHS,
     ExpectedCount:=-1;
     if length(ArrType.Ranges)=0 then
       begin
-      // dynamic array
+      // dynamic or open array
       if (Expr<>nil) then
         begin
         if Expr.ClassType=TArrayValues then
           ExpectedCount:=length(TArrayValues(Expr).Values)
         else if (Expr.ClassType=TParamsExpr) and (TParamsExpr(Expr).Kind=pekSet) then
           ExpectedCount:=length(TParamsExpr(Expr).Params)
-        else if (Values.BaseType in btAllStringAndChars) and IsVarInit(Expr) then
+        else if (Values.BaseType in btAllStringAndChars) then
           begin
-          // const a: dynarray = string
-          ComputeElement(ArrType.ElType,ElTypeResolved,[rcType]);
-          if ElTypeResolved.BaseType in btAllChars then
-            Result:=cExact;
+          // e.g. const a: dynarray = string
+          // or e.g. pass a string literal to an open array
+          CheckArrOfCharAssignString;
           exit;
           end
         else
@@ -25777,7 +25794,15 @@ function TPasResolver.CheckAssignCompatibilityArrayType(const LHS,
         begin
         // type check
         if (Values.BaseType<>btContext) or (Values.LoTypeEl.ClassType<>TPasArrayType) then
+          begin
+          // RHS is not an array
+          if (Values.BaseType in btAllStringAndChars) then
+            begin
+            // e.g. pass a string literal to an open array
+            CheckArrOfCharAssignString;
+            end;
           exit;
+          end;
         RArrayType:=TPasArrayType(Values.LoTypeEl);
         if length(RArrayType.Ranges)>0 then
           begin
@@ -28070,7 +28095,7 @@ begin
     Data:=TPasSpecializeTypeData.Create;
     // add to free list
     AddResolveData(El,Data,lkModule);
-    Data.SpecializedType:=Result as TPasGenericType;
+    Data.SpecializedType:=Result as TPasGenericType; // no AddRef
     end;
 end;
 

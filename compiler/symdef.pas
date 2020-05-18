@@ -895,6 +895,8 @@ interface
           { returns whether the mangled name or any of its aliases is equal to
             s }
           function  has_alias_name(const s: TSymStr):boolean;
+          { Returns true if the implementation part for this procdef has been handled }
+          function is_implemented: boolean;
 
           { aliases to fields only required when a function is implemented in
             the current unit }
@@ -6553,6 +6555,12 @@ implementation
       end;
 
 
+    function tprocdef.is_implemented: boolean;
+      begin
+        result:=not assigned(implprocdefinfo) or not implprocdefinfo^.forwarddef;
+      end;
+
+
     function tprocdef.GetSymtable(t:tGetSymtable):TSymtable;
       begin
         case t of
@@ -7847,14 +7855,11 @@ implementation
 
     function tobjectdef.vmt_def: trecorddef;
       var
+        where: tsymtable;
         vmttypesym: tsymentry;
       begin
-        if not(typesym.owner.symtabletype in [ObjectSymtable,recordsymtable]) then
-          vmttypesym:=typesym.owner.Find('vmtdef$'+mangledparaname)
-        else
-          { Use common parent of trecordsymtable and tobjectsymtable
-            to avoid invalid typecast error when compiled with -CR option }
-          vmttypesym:=tabstractrecordsymtable(typesym.owner).get_unit_symtable.Find('vmtdef$'+mangledparaname);
+        where:=get_top_level_symtable(true);
+        vmttypesym:=where.Find('vmtdef$'+mangledparaname);
         if not assigned(vmttypesym) or
            (vmttypesym.typ<>symconst.typesym) or
            (ttypesym(vmttypesym).typedef.typ<>recorddef) then

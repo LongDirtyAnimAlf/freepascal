@@ -1812,8 +1812,6 @@ implementation
 
         { automatic inlining? }
         if (cs_opt_autoinline in current_settings.optimizerswitches) and
-           { inlining not turned off? }
-           (cs_do_inline in current_settings.localswitches) and
            not(po_noinline in procdef.procoptions) and
            { no inlining yet? }
            not(procdef.has_inlininginfo) and not(has_nestedprocs) and
@@ -1821,8 +1819,13 @@ implementation
                                            potype_destructor,potype_class_constructor,potype_class_destructor]) and
             ((procdef.procoptions*[po_exports,po_external,po_interrupt,po_virtualmethod,po_iocheck])=[]) and
             (not(procdef.proccalloption in [pocall_safecall])) and
-            { rough approximation if we should auto inline }
-            (node_count(code)<=10) then
+            { rough approximation if we should auto inline:
+              - if the tree is simple enough
+              - if the tree is not too big
+              A bigger tree which is simpler might be autoinlined otoh
+              a smaller and complexer tree as well: so we use the sum of
+              both measures here }
+            (node_count(code)+node_complexity(code)<=25) then
           begin
             { Can we inline this procedure? }
             if checknodeinlining(procdef) then
@@ -2306,6 +2309,7 @@ implementation
          parentfpinitblock: tnode;
          old_parse_generic: boolean;
          recordtokens : boolean;
+         parentfp_sym: TSymEntry;
 
       begin
          old_current_procinfo:=current_procinfo;
@@ -2381,6 +2385,25 @@ implementation
 
          { parse the code ... }
          code:=block(current_module.islibrary);
+
+         { If this is a nested procedure which does not access its parent's frame
+           pointer, we can optimize it by removing the hidden $parentfp parameter.
+           Do not perform this for:
+             - targets which use a special struct to access parent's variables;
+             - pure assembler procedures (for compatibility with old code).
+         }
+         if not (target_info.system in systems_fpnestedstruct) and
+            is_nested_pd(procdef) and
+            not (pio_needs_parentfp in procdef.implprocoptions) and
+            not (po_assembler in procdef.procoptions) then
+           begin
+             exclude(procdef.procoptions, po_delphi_nested_cc);
+             parentfp_sym:=procdef.parast.Find('parentfp');
+             if parentfp_sym = nil then
+               Internalerror(2020050301);
+             procdef.parast.Delete(parentfp_sym);
+             procdef.calcparas;
+           end;
 
          if recordtokens then
            begin

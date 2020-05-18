@@ -765,7 +765,14 @@ implementation
                           hp:=right;
                           right:=taddnode(left).right;
                           taddnode(left).right:=hp;
-                          left:=left.simplify(false);
+                          left:=left.simplify(forinline);
+                          if resultdef.typ<>pointerdef then
+                            begin
+                              { ensure that the constant is not expanded to a larger type due to overflow,
+                                but this is only useful if no pointer operation is done }
+                              left:=ctypeconvnode.create_internal(left,resultdef);
+                              do_typecheckpass(left);
+                            end;
                           result:=GetCopyAndTypeCheck;
                         end;
                       else
@@ -785,6 +792,13 @@ implementation
                           hp:=taddnode(left).left;
                           taddnode(left).left:=right;
                           left:=left.simplify(forinline);
+                          if resultdef.typ<>pointerdef then
+                            begin
+                              { ensure that the constant is not expanded to a larger type due to overflow,
+                                but this is only useful if no pointer operation is done }
+                              left:=ctypeconvnode.create_internal(left,resultdef);
+                              do_typecheckpass(left);
+                            end;
                           right:=left;
                           left:=hp;
                           result:=GetCopyAndTypeCheck;
@@ -1365,8 +1379,7 @@ implementation
                    not(might_have_sideeffects(tshlshrnode(left).left)) then
                    begin
                      if (tordconstnode(tshlshrnode(left).right).value=
-                       tshlshrnode(left).left.resultdef.size*8-tordconstnode(tshlshrnode(right).right).value)
-                        then
+                       tshlshrnode(left).left.resultdef.size*8-tordconstnode(tshlshrnode(right).right).value) then
                        begin
                          result:=cinlinenode.create(in_ror_x_y,false,
                            ccallparanode.create(tshlshrnode(left).right,
@@ -1376,8 +1389,7 @@ implementation
                          exit;
                        end
                      else if (tordconstnode(tshlshrnode(right).right).value=
-                       tshlshrnode(left).left.resultdef.size*8-tordconstnode(tshlshrnode(left).right).value)
-                        then
+                       tshlshrnode(left).left.resultdef.size*8-tordconstnode(tshlshrnode(left).right).value) then
                        begin
                          result:=cinlinenode.create(in_rol_x_y,false,
                            ccallparanode.create(tshlshrnode(right).right,
@@ -3226,6 +3238,7 @@ implementation
             internalerror(200609241);
         end;
       end;
+
 
     function taddnode.first_adddynarray : tnode;
       var

@@ -106,6 +106,10 @@ interface
          RELOC_ADD_ABS_LO12,
          RELOC_LDST8_ABS_LO12,
 {$endif aarch64}
+{$ifdef z80}
+         RELOC_ABSOLUTE_HI8,
+         RELOC_ABSOLUTE_LO8,
+{$endif z80}
          { Relative relocation }
          RELOC_RELATIVE,
          { PECoff (Windows) RVA relocation }
@@ -364,13 +368,15 @@ interface
        Owner: TObjData;
      end;
 
-{$ifdef i8086}
+{$if defined(i8086)}
      { on i8086 we use a longint, to support 32-bit relocations as well (e.g.
        for allowing 386+ instructions with 32-bit addresses in inline asm code) }
      TRelocDataInt = longint;
-{$else i8086}
+{$elseif defined(cpu16bitaddr)}
+     TRelocDataInt = asizeint;
+{$else}
      TRelocDataInt = aint;
-{$endif i8086}
+{$endif}
 
      TObjData = class(TLinkedListItem)
      private
@@ -1706,7 +1712,7 @@ implementation
         { export globals and common symbols, this is needed
           for .a files }
         if p.bind in [AB_GLOBAL,AB_PRIVATE_EXTERN,AB_COMMON] then
-         FWriter.writesym(p.name);
+         FWriter.writesym(ApplyAsmSymbolRestrictions(p.name));
       end;
 
     procedure TObjOutput.WriteSectionContent(Data:TObjData);

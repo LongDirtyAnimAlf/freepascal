@@ -63,7 +63,7 @@ unit cpubase;
       call_jmp_instructions = [A_CALL]+jmp_instructions;
 
       { instructions that can have a condition }
-      cond_instructions = [A_CALL,A_JP,A_RET];
+      cond_instructions = [A_CALL,A_JP,A_JR,A_RET];
 
 {*****************************************************************************
                                   Registers
@@ -284,6 +284,8 @@ unit cpubase;
     procedure split_regpair(regpair:Tregister;out reglo,reghi:Tregister);
     { Checks if sreg is a subset of reg (e.g. NR_H is a subset of NR_HL }
     function register_in(sreg,reg:Tregister):boolean;
+    function super_registers_equal(reg1,reg2 : TRegister) : Boolean;
+    function registers_interfere(reg1,reg2: TRegister) : Boolean;
 
     function inverse_cond(const c: TAsmCond): TAsmCond; {$ifdef USEINLINE}inline;{$endif USEINLINE}
     function conditions_equal(const c1, c2: TAsmCond): boolean; {$ifdef USEINLINE}inline;{$endif USEINLINE}
@@ -452,6 +454,110 @@ unit cpubase;
           end
         else
           result:=false;
+      end;
+
+
+    function super_registers_equal(reg1, reg2: TRegister): Boolean;
+      begin
+        case reg1 of
+          NR_A,NR_F,NR_AF,NR_CARRYFLAG,NR_ADDSUBTRACTFLAG,NR_PARITYOVERFLOWFLAG,NR_HALFCARRYFLAG,NR_ZEROFLAG,NR_SIGNFLAG:
+            result:=(reg2=NR_A) or (reg2=NR_F) or (reg2=NR_AF) or
+                    (reg2=NR_CARRYFLAG) or (reg2=NR_ADDSUBTRACTFLAG) or
+                    (reg2=NR_PARITYOVERFLOWFLAG) or (reg2=NR_HALFCARRYFLAG) or
+                    (reg2=NR_ZEROFLAG) or (reg2=NR_SIGNFLAG);
+          NR_B,NR_C,NR_BC:
+            result:=(reg2=NR_B) or (reg2=NR_C) or (reg2=NR_BC);
+          NR_D,NR_E,NR_DE:
+            result:=(reg2=NR_D) or (reg2=NR_E) or (reg2=NR_DE);
+          NR_H,NR_L,NR_HL:
+            result:=(reg2=NR_H) or (reg2=NR_L) or (reg2=NR_HL);
+          NR_A_,NR_F_,NR_AF_,NR_CARRYFLAG_,NR_ADDSUBTRACTFLAG_,NR_PARITYOVERFLOWFLAG_,NR_HALFCARRYFLAG_,NR_ZEROFLAG_,NR_SIGNFLAG_:
+            result:=(reg2=NR_A_) or (reg2=NR_F_) or (reg2=NR_AF_) or
+                    (reg2=NR_CARRYFLAG_) or (reg2=NR_ADDSUBTRACTFLAG_) or
+                    (reg2=NR_PARITYOVERFLOWFLAG_) or (reg2=NR_HALFCARRYFLAG_) or
+                    (reg2=NR_ZEROFLAG_) or (reg2=NR_SIGNFLAG_);
+          NR_B_,NR_C_,NR_BC_:
+            result:=(reg2=NR_B_) or (reg2=NR_C_) or (reg2=NR_BC_);
+          NR_D_,NR_E_,NR_DE_:
+            result:=(reg2=NR_D_) or (reg2=NR_E_) or (reg2=NR_DE_);
+          NR_H_,NR_L_,NR_HL_:
+            result:=(reg2=NR_H_) or (reg2=NR_L_) or (reg2=NR_HL_);
+          else
+            result:=reg1=reg2;
+        end;
+      end;
+
+
+    function registers_interfere(reg1, reg2: TRegister): Boolean;
+      begin
+        case reg1 of
+          NR_A:
+            result:=(reg2=NR_A) or (reg2=NR_AF);
+          NR_F:
+            result:=(reg2=NR_F) or (reg2=NR_AF) or
+                    (reg2=NR_CARRYFLAG) or (reg2=NR_ADDSUBTRACTFLAG) or
+                    (reg2=NR_PARITYOVERFLOWFLAG) or (reg2=NR_HALFCARRYFLAG) or
+                    (reg2=NR_ZEROFLAG) or (reg2=NR_SIGNFLAG);
+          NR_AF:
+            result:=(reg2=NR_A) or (reg2=NR_F) or (reg2=NR_AF) or
+                    (reg2=NR_CARRYFLAG) or (reg2=NR_ADDSUBTRACTFLAG) or
+                    (reg2=NR_PARITYOVERFLOWFLAG) or (reg2=NR_HALFCARRYFLAG) or
+                    (reg2=NR_ZEROFLAG) or (reg2=NR_SIGNFLAG);
+          NR_CARRYFLAG,NR_ADDSUBTRACTFLAG,NR_PARITYOVERFLOWFLAG,NR_HALFCARRYFLAG,NR_ZEROFLAG,NR_SIGNFLAG:
+            result:=(reg2=NR_F) or (reg2=NR_AF) or (reg2=reg1);
+          NR_B:
+            result:=(reg2=NR_B) or (reg2=NR_BC);
+          NR_C:
+            result:=(reg2=NR_C) or (reg2=NR_BC);
+          NR_BC:
+            result:=(reg2=NR_B) or (reg2=NR_C) or (reg2=NR_BC);
+          NR_D:
+            result:=(reg2=NR_D) or (reg2=NR_DE);
+          NR_E:
+            result:=(reg2=NR_E) or (reg2=NR_DE);
+          NR_DE:
+            result:=(reg2=NR_D) or (reg2=NR_E) or (reg2=NR_DE);
+          NR_H:
+            result:=(reg2=NR_H) or (reg2=NR_HL);
+          NR_L:
+            result:=(reg2=NR_L) or (reg2=NR_HL);
+          NR_HL:
+            result:=(reg2=NR_H) or (reg2=NR_L) or (reg2=NR_HL);
+          NR_A_:
+            result:=(reg2=NR_A_) or (reg2=NR_AF_);
+          NR_F_:
+            result:=(reg2=NR_F_) or (reg2=NR_AF_) or
+                    (reg2=NR_CARRYFLAG_) or (reg2=NR_ADDSUBTRACTFLAG_) or
+                    (reg2=NR_PARITYOVERFLOWFLAG_) or (reg2=NR_HALFCARRYFLAG_) or
+                    (reg2=NR_ZEROFLAG_) or (reg2=NR_SIGNFLAG_);
+          NR_AF_:
+            result:=(reg2=NR_A_) or (reg2=NR_F_) or (reg2=NR_AF_) or
+                    (reg2=NR_CARRYFLAG_) or (reg2=NR_ADDSUBTRACTFLAG_) or
+                    (reg2=NR_PARITYOVERFLOWFLAG_) or (reg2=NR_HALFCARRYFLAG_) or
+                    (reg2=NR_ZEROFLAG_) or (reg2=NR_SIGNFLAG_);
+          NR_CARRYFLAG_,NR_ADDSUBTRACTFLAG_,NR_PARITYOVERFLOWFLAG_,NR_HALFCARRYFLAG_,NR_ZEROFLAG_,NR_SIGNFLAG_:
+            result:=(reg2=NR_F_) or (reg2=NR_AF_) or (reg2=reg1);
+          NR_B_:
+            result:=(reg2=NR_B_) or (reg2=NR_BC_);
+          NR_C_:
+            result:=(reg2=NR_C_) or (reg2=NR_BC_);
+          NR_BC_:
+            result:=(reg2=NR_B_) or (reg2=NR_C_) or (reg2=NR_BC_);
+          NR_D_:
+            result:=(reg2=NR_D_) or (reg2=NR_DE_);
+          NR_E_:
+            result:=(reg2=NR_E_) or (reg2=NR_DE_);
+          NR_DE_:
+            result:=(reg2=NR_D_) or (reg2=NR_E_) or (reg2=NR_DE_);
+          NR_H_:
+            result:=(reg2=NR_H_) or (reg2=NR_HL_);
+          NR_L_:
+            result:=(reg2=NR_L_) or (reg2=NR_HL_);
+          NR_HL_:
+            result:=(reg2=NR_H_) or (reg2=NR_L_) or (reg2=NR_HL_);
+          else
+            result:=reg1=reg2;
+        end;
       end;
 
 

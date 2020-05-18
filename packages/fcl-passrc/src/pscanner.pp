@@ -39,7 +39,7 @@ uses
   {$ifdef pas2js}
   js,
   {$IFDEF NODEJS}
-  NodeJSFS,
+  Node.FS,
   {$ENDIF}
   Types,
   {$endif}
@@ -665,7 +665,8 @@ type
     po_CheckCondFunction,    // error on unknown function in conditional expression, default: return '0'
     po_StopOnErrorDirective, // error on user $Error, $message error|fatal
     po_ExtConstWithoutExpr,  // allow typed const without expression in external class and with external modifier
-    po_StopOnUnitInterface   // parse only a unit name and stop at interface keyword
+    po_StopOnUnitInterface,  // parse only a unit name and stop at interface keyword
+    po_IgnoreUnknownResource // Ignore resources for which no handler is registered.
     );
   TPOptions = set of TPOption;
 
@@ -683,8 +684,8 @@ type
   TPScannerLogHandler = Procedure (Sender : TObject; Const Msg : String) of object;
   TPScannerLogEvent = (sleFile,sleLineNumber,sleConditionals,sleDirective);
   TPScannerLogEvents = Set of TPScannerLogEvent;
-  TPScannerDirectiveEvent = procedure(Sender: TObject; Directive, Param: String;
-    var Handled: boolean) of object;
+  TPScannerDirectiveEvent = procedure(Sender: TObject; Directive, Param: String; var Handled: boolean) of object;
+  TPScannerCommentEvent = procedure(Sender: TObject; aComment : String) of object;
   TPScannerFormatPathEvent = function(const aPath: string): string of object;
   TPScannerWarnEvent = procedure(Sender: TObject; Identifier: string; State: TWarnMsgState; var Handled: boolean) of object;
   TPScannerModeDirective = procedure(Sender: TObject; NewMode: TModeSwitch; Before: boolean; var Handled: boolean) of object;
@@ -733,6 +734,7 @@ type
     FMacros: TStrings; // Objects are TMacroDef
     FDefines: TStrings;
     FNonTokens: TTokens;
+    FOnComment: TPScannerCommentEvent;
     FOnDirective: TPScannerDirectiveEvent;
     FOnEvalFunction: TCEEvalFunctionEvent;
     FOnEvalVariable: TCEEvalVarEvent;
@@ -798,6 +800,7 @@ type
     function HandleDirective(const ADirectiveText: String): TToken; virtual;
     function HandleLetterDirective(Letter: char; Enable: boolean): TToken; virtual;
     procedure HandleBoolDirective(bs: TBoolSwitch; const Param: String); virtual;
+    procedure DoHandleComment(Sender: TObject; const aComment : string); virtual;
     procedure DoHandleDirective(Sender: TObject; Directive, Param: String;
       var Handled: boolean); virtual;
     procedure HandleIFDEF(const AParam: String);
@@ -881,7 +884,6 @@ type
     property Defines: TStrings read FDefines;
     property Macros: TStrings read FMacros;
     property MacrosOn: boolean read GetMacrosOn write SetMacrosOn;
-    property OnDirective: TPScannerDirectiveEvent read FOnDirective write FOnDirective;
     property AllowedModeSwitches: TModeSwitches read FAllowedModeSwitches Write SetAllowedModeSwitches;
     property ReadOnlyModeSwitches: TModeSwitches read FReadOnlyModeSwitches Write SetReadOnlyModeSwitches;// always set, cannot be disabled
     property CurrentModeSwitches: TModeSwitches read FCurrentModeSwitches Write SetCurrentModeSwitches;
@@ -907,6 +909,9 @@ type
     property OnEvalFunction: TCEEvalFunctionEvent read FOnEvalFunction write FOnEvalFunction;
     property OnWarnDirective: TPScannerWarnEvent read FOnWarnDirective write FOnWarnDirective;
     property OnModeChanged: TPScannerModeDirective read FOnModeChanged write FOnModeChanged; // set by TPasParser
+    property OnDirective: TPScannerDirectiveEvent read FOnDirective write FOnDirective;
+    property OnComment: TPScannerCommentEvent read FOnComment write FOnComment;
+
 
     property LastMsg: string read FLastMsg write FLastMsg;
     property LastMsgNumber: integer read FLastMsgNumber write FLastMsgNumber;
@@ -3372,7 +3377,11 @@ begin
   if (H=Nil) then
     H:=FindResourceHandler('*');
   if (H=Nil) then
-    Error(nNoResourceSupport,SNoResourceSupport,[Ext]);
+    begin
+    if not (po_IgnoreUnknownResource in Options) then
+      Error(nNoResourceSupport,SNoResourceSupport,[Ext]);
+    exit;
+    end;
   // Let the handler take care of the rest.
   OptList:=TStringList.Create;
   try
@@ -3630,7 +3639,7 @@ begin
     DoLog(mtWarning,nMisplacedGlobalCompilerSwitch,SMisplacedGlobalCompilerSwitch,[]);
     exit;
     end;
-  P:=UpperCase(Param);
+  P:=Trim(UpperCase(Param));
   Case P of
   'FPC','DEFAULT':
     SetMode(msFpc,FPCModeSwitches,false,bsFPCMode);
@@ -4089,11 +4098,17 @@ begin
     CurrentBoolSwitches:=CurrentBoolSwitches-[bs];
 end;
 
+procedure TPascalScanner.DoHandleComment(Sender: TObject; const aComment: string);
+begin
+  if Assigned(OnComment) then
+    OnComment(Sender,aComment);
+end;
+
 procedure TPascalScanner.DoHandleDirective(Sender: TObject; Directive,
   Param: String; var Handled: boolean);
 begin
   if Assigned(OnDirective) then
-    OnDirective(Self,Directive,Param,Handled);
+    OnDirective(Sender,Directive,Param,Handled);
 end;
 
 function TPascalScanner.DoFetchToken: TToken;
@@ -4294,7 +4309,9 @@ begin
         Inc(FTokenPos, 2);
         Result := tkComment;
         if Copy(CurTokenString,1,1)='$' then
-          Result := HandleDirective(CurTokenString);
+          Result := HandleDirective(CurTokenString)
+        else
+          DoHandleComment(Self,CurTokenString);
         end;
       end;
     ')':
@@ -4595,7 +4612,9 @@ begin
       Inc(FTokenPos);
       Result := tkComment;
       if (Copy(CurTokenString,1,1)='$') then
-        Result:=HandleDirective(CurTokenString);
+        Result:=HandleDirective(CurTokenString)
+      else
+        DoHandleComment(Self, CurTokenString)
       end;
     'A'..'Z', 'a'..'z', '_':
       begin

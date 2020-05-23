@@ -340,6 +340,10 @@ type
     Procedure TestProc_LocalVarInit;
     Procedure TestProc_ReservedWords;
     Procedure TestProc_ConstRefWord;
+    Procedure TestProc_Async;
+    Procedure TestProc_AWaitOutsideAsyncFail;
+    Procedure TestProc_AWait;
+    Procedure TestProc_AWaitExternalClassPromise;
 
     // anonymous functions
     Procedure TestAnonymousProc_Assign_ObjFPC;
@@ -352,6 +356,7 @@ type
     Procedure TestAnonymousProc_NestedAssignResult;
     Procedure TestAnonymousProc_Class;
     Procedure TestAnonymousProc_ForLoop;
+    Procedure TestAnonymousProc_Async;
 
     // enums, sets
     Procedure TestEnum_Name;
@@ -4604,6 +4609,115 @@ begin
     ]));
 end;
 
+procedure TTestModule.TestProc_Async;
+begin
+  StartProgram(false);
+  Add([
+  'procedure Fly(w: word); async; forward;',
+  'procedure Run(w: word); async;',
+  'begin',
+  'end;',
+  'procedure Fly(w: word); ',
+  'begin',
+  'end;',
+  'begin',
+  '  Run(1);']);
+  ConvertProgram;
+  CheckSource('TestProc_Async',
+    LinesToStr([ // statements
+    'this.Run = async function (w) {',
+    '};',
+    'this.Fly = async function (w) {',
+    '};',
+    '']),
+    LinesToStr([
+    '$mod.Run(1);'
+    ]));
+end;
+
+procedure TTestModule.TestProc_AWaitOutsideAsyncFail;
+begin
+  StartProgram(false);
+  Add([
+  'function Crawl(w: double): word; ',
+  'begin',
+  'end;',
+  'function Run(w: double): word;',
+  'begin',
+  '  Result:=await(Crawl(w));',
+  'end;',
+  'begin',
+  '  Run(1);']);
+  SetExpectedPasResolverError(sAWaitOnlyInAsyncProcedure,nAWaitOnlyInAsyncProcedure);
+  ConvertProgram;
+end;
+
+procedure TTestModule.TestProc_AWait;
+begin
+  StartProgram(false);
+  Add([
+  'function Crawl(d: double = 1.3): word; ',
+  'begin',
+  'end;',
+  'function Run(d: double): word; async;',
+  'begin',
+  '  Result:=await(1);',
+  '  Result:=await(Crawl);',
+  '  Result:=await(Crawl(4.5));',
+  'end;',
+  'begin',
+  '  Run(1);']);
+  ConvertProgram;
+  CheckSource('TestProc_AWait',
+    LinesToStr([ // statements
+    'this.Crawl = function (d) {',
+    '  var Result = 0;',
+    '  return Result;',
+    '};',
+    'this.Run = async function (d) {',
+    '  var Result = 0;',
+    '  Result = await 1;',
+    '  Result = await $mod.Crawl(1.3);',
+    '  Result = await $mod.Crawl(4.5);',
+    '  return Result;',
+    '};',
+    '']),
+    LinesToStr([
+    '$mod.Run(1);'
+    ]));
+end;
+
+procedure TTestModule.TestProc_AWaitExternalClassPromise;
+begin
+  StartProgram(false);
+  Add([
+  '{$modeswitch externalclass}',
+  'type',
+  '  TJSPromise = class external name ''Promise''',
+  '  end;',
+  'function Run(d: double): word; async;',
+  'var',
+  '  p: TJSPromise;',
+  'begin',
+  '  Result:=await(word,p);',
+  'end;',
+  'begin',
+  '  Run(1);']);
+  ConvertProgram;
+  CheckSource('TestProc_AWaitExternalClassPromise',
+    LinesToStr([ // statements
+    'this.Run = async function (d) {',
+    '  var Result = 0;',
+    '  var p = null;',
+    '  Result = await p;',
+    '  return Result;',
+    '};',
+    '']),
+    LinesToStr([
+    '$mod.Run(1);'
+    ]));
+end;
+
 procedure TTestModule.TestAnonymousProc_Assign_ObjFPC;
 begin
   StartProgram(false);
@@ -5081,6 +5195,44 @@ begin
     LinesToStr([
     '$mod.DoIt();'
     ]));
+end;
+
+procedure TTestModule.TestAnonymousProc_Async;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TFunc = reference to function(x: double): word;',
+  'function Crawl(d: double = 1.3): word; ',
+  'begin',
+  'end;',
+  'var Func: TFunc;',
+  'begin',
+  '  Func:=function(c:double):word async begin',
+  '    Result:=await(Crawl(c));',
+  '  end;',
+  '  Func:=function(c:double):word async assembler asm',
+  '  end;',
+  '  ']);
+  ConvertProgram;
+  CheckSource('TestAnonymousProc_Async',
+    LinesToStr([ // statements
+    'this.Crawl = function (d) {',
+    '  var Result = 0;',
+    '  return Result;',
+    '};',
+    'this.Func = null;',
+    '']),
+    LinesToStr([
+    '$mod.Func = async function (c) {',
+    '  var Result = 0;',
+    '  Result = await $mod.Crawl(c);',
+    '  return Result;',
+    '};',
+    '$mod.Func = async function (c) {',
+    '};',
+    '']));
 end;
 
 procedure TTestModule.TestEnum_Name;

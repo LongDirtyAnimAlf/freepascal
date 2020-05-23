@@ -780,6 +780,7 @@ interface
 {$else symansistr}
          _mangledname : pshortstring;
 {$endif}
+         _parentfpsym : tsym;
          { information that is only required until the implementation of the
            procdef has been handled }
          implprocdefinfo : pimplprocdefinfo;
@@ -812,6 +813,7 @@ interface
          procedure SetIsEmpty(AValue: boolean);
          function GetHasInliningInfo: boolean;
          procedure SetHasInliningInfo(AValue: boolean);
+         function getparentfpsym: tsym;
        public
           messageinf : tmessageinf;
           dispid : longint;
@@ -934,6 +936,8 @@ interface
           property isempty: boolean read GetIsEmpty write SetIsEmpty;
           { true if all information required to inline this routine is available }
           property has_inlininginfo: boolean read GetHasInliningInfo write SetHasInliningInfo;
+          { returns the $parentfp parameter for nested routines }
+          property parentfpsym: tsym read getparentfpsym;
        end;
        tprocdefclass = class of tprocdef;
 
@@ -5764,6 +5768,8 @@ implementation
           if tsym(parast.SymList[i]).typ=paravarsym then
             begin
               p:=tparavarsym(parast.SymList[i]);
+              if not p.is_used then
+                continue;
               { check if no parameter is located on the stack }
               if (is_open_array(p.vardef) or
                  is_array_of_const(p.vardef)) and (p.varspez=vs_value) then
@@ -5829,6 +5835,17 @@ implementation
 {***************************************************************************
                                   TPROCDEF
 ***************************************************************************}
+
+    function tprocdef.getparentfpsym: tsym;
+      begin
+        if not assigned(_parentfpsym) then
+          begin
+            _parentfpsym:=tsym(parast.Find('parentfp'));
+            if not assigned(_parentfpsym) then
+              internalerror(200309281);
+          end;
+        result:=_parentfpsym;
+      end;
 
 
     function tprocdef.store_localst: boolean;

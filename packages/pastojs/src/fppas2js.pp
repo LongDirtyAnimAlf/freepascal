@@ -404,6 +404,9 @@ Works:
 - overflow check:
   -Co   : Overflow checking of integer operations
 - generics
+- async procedure modifier
+- function await(const expr: T): T
+- function await(T; p: TJSPromise): T
 
 ToDos:
 - range check:
@@ -484,7 +487,7 @@ const
   nVirtualMethodNameMustMatchExternal = 4013;
   nPublishedNameMustMatchExternal = 4014;
   nInvalidVariableModifier = 4015;
-  // was nExternalObjectConstructorMustBeNamedNew = 4016;
+  nAWaitOnlyInAsyncProcedure = 4016;
   nNewInstanceFunctionMustBeVirtual = 4017;
   nNewInstanceFunctionMustHaveTwoParameters = 4018;
   nNewInstanceFunctionMustNotHaveOverloadAtX = 4019;
@@ -517,7 +520,7 @@ resourcestring
   sVirtualMethodNameMustMatchExternal = 'Virtual method name must match external';
   sInvalidVariableModifier = 'Invalid variable modifier "%s"';
   sPublishedNameMustMatchExternal = 'Published name must match external';
-  // was sExternalObjectConstructorMustBeNamedNew = 'external object constructor must be named "new"';
+  sAWaitOnlyInAsyncProcedure = 'await only available in async procedure';
   sNewInstanceFunctionMustBeVirtual = 'NewInstance function must be virtual';
   sNewInstanceFunctionMustHaveTwoParameters = 'NewInstance function must have two parameters';
   sNewInstanceFunctionMustNotHaveOverloadAtX = 'NewInstance function must not have overload at %s';
@@ -1238,7 +1241,8 @@ const
     po_AsmWhole,
     po_ResolveStandardTypes,
     po_ExtConstWithoutExpr,
-    po_StopOnUnitInterface];
+    po_StopOnUnitInterface,
+    po_AsyncProcs];
 
   btAllJSBaseTypes = [
     btChar,
@@ -1415,6 +1419,12 @@ type
       Params: TParamsExpr; out ResolvedEl: TPasResolverResult); override;
     function BI_Debugger_OnGetCallCompatibility(Proc: TResElDataBuiltInProc;
       Expr: TPasExpr; RaiseOnError: boolean): integer; virtual;
+    function BI_AWait_OnGetCallCompatibility(Proc: TResElDataBuiltInProc;
+      Expr: TPasExpr; RaiseOnError: boolean): integer; virtual;
+    procedure BI_AWait_OnGetCallResult(Proc: TResElDataBuiltInProc;
+      Params: TParamsExpr; out ResolvedEl: TPasResolverResult); virtual;
+    procedure BI_AWait_OnEval(Proc: TResElDataBuiltInProc;
+      Params: TParamsExpr; Flags: TResEvalFlags; out Evaluated: TResEvalValue); virtual;
   public
     constructor Create; reintroduce;
     destructor Destroy; override;
@@ -2008,6 +2018,7 @@ type
     Function ConvertBuiltIn_Dispose(El: TParamsExpr; AContext: TConvertContext): TJSElement; virtual;
     Function ConvertBuiltIn_Default(El: TParamsExpr; AContext: TConvertContext): TJSElement; virtual;
     Function ConvertBuiltIn_Debugger(El: TPasExpr; AContext: TConvertContext): TJSElement; virtual;
+    Function ConvertBuiltIn_AWait(El: TParamsExpr; AContext: TConvertContext): TJSElement; virtual;
     Function ConvertRecordValues(El: TRecordValues; AContext: TConvertContext): TJSElement; virtual;
     Function ConvertSelfExpression(El: TSelfExpr; AContext: TConvertContext): TJSElement; virtual;
     Function ConvertBinaryExpression(El: TBinaryExpr; AContext: TConvertContext): TJSElement; virtual;
@@ -4087,7 +4098,8 @@ begin
       if (not (pm in [pmVirtual, pmAbstract, pmOverride,
                       pmOverload, pmMessage, pmReintroduce,
                       pmInline, pmAssembler, pmPublic,
-                      pmExternal, pmForward])) then
+                      pmExternal, pmForward,
+                      pmAsync])) then
         RaiseNotYetImplemented(20170208142159,El,'modifier '+ModifierNames[pm]);
     for ptm in Proc.ProcType.Modifiers do
       if (not (ptm in [ptmOfObject,ptmVarargs,ptmStatic])) then
@@ -4234,7 +4246,7 @@ begin
         RaiseMsg(20170227095454,nMissingExternalName,sMissingExternalName,
           ['missing external name'],Proc);
 
-      for pm in [pmAssembler,pmForward,pmNoReturn,pmInline] do
+      for pm in [pmAssembler,pmForward,pmNoReturn,pmInline,pmAsync] do
         if pm in Proc.Modifiers then
           RaiseMsg(20170323100842,nInvalidXModifierY,sInvalidXModifierY,
             [Proc.ElementTypeName,ModifierNames[pm]],Proc);
@@ -5197,6 +5209,106 @@ begin
     Result:=cExact;
 end;
 
+function TPas2JSResolver.BI_AWait_OnGetCallCompatibility(
+  Proc: TResElDataBuiltInProc; Expr: TPasExpr; RaiseOnError: boolean): integer;
+// function await(const Expr: T): T
+const
+  Signature2 = 'function await(aType,TJSPromise):aType';
+var
+  Params: TParamsExpr;
+  Param: TPasExpr;
+  ParamResolved: TPasResolverResult;
+  ParentProc: TPasProcedure;
+  TypeEl: TPasType;
+begin
+  Result:=cIncompatible;
+
+  // check if inside async proc
+  ParentProc:=GetParentProc(Expr);
+  if (ParentProc=nil) or not ParentProc.IsAsync then
+    begin
+    if RaiseOnError then
+      RaiseMsg(20200519153349,nAWaitOnlyInAsyncProcedure,sAWaitOnlyInAsyncProcedure,[],Expr);
+    exit;
+    end;
+
+  if not CheckBuiltInMinParamCount(Proc,Expr,1,RaiseOnError) then
+    exit;
+  Params:=TParamsExpr(Expr);
+  Param:=Params.Params[0];
+  ComputeElement(Param,ParamResolved,[]);
+  if (rrfReadable in ParamResolved.Flags) then
+    begin
+    // function await(value)
+    // must be the only parameter
+    Result:=CheckBuiltInMaxParamCount(Proc,Params,1,RaiseOnError);
+    end
+  else
+    begin
+    TypeEl:=ParamResolved.LoTypeEl;
+    if (TypeEl is TPasUnresolvedSymbolRef)
+        and (TypeEl.CustomData is TResElDataBaseType) then
+      // base type
+    else if (TypeEl<>nil) and (ParamResolved.IdentEl is TPasType) then
+      // custom type
+    else
+      exit(CheckRaiseTypeArgNo(20200519151816,1,Param,ParamResolved,'jsvalue',RaiseOnError));
+
+    // function await(type,...)
+    if length(Params.Params)<2 then
+      begin
+      if RaiseOnError then
+        RaiseMsg(20200520090749,nWrongNumberOfParametersForCallTo,
+          sWrongNumberOfParametersForCallTo,[Signature2],Params);
+      exit(cIncompatible);
+      end;
+
+    // check second param TJSPromise
+    Param:=Params.Params[1];
+    ComputeElement(Param,ParamResolved,[]);
+    if not (rrfReadable in ParamResolved.Flags) then
+      exit(CheckRaiseTypeArgNo(20200520091707,2,Param,ParamResolved,
+         'instance of TJSPromise',RaiseOnError));
+
+    if (ParamResolved.BaseType<>btContext)
+        or not (ParamResolved.LoTypeEl is TPasClassType)
+        or not IsExternalClass_Name(TPasClassType(ParamResolved.LoTypeEl),'Promise') then
+      exit(CheckRaiseTypeArgNo(20200520091707,2,Param,ParamResolved,
+         'TJSPromise',RaiseOnError));
+
+    Result:=CheckBuiltInMaxParamCount(Proc,Params,2,RaiseOnError,Signature2);
+    end;
+end;
+
+procedure TPas2JSResolver.BI_AWait_OnGetCallResult(Proc: TResElDataBuiltInProc;
+  Params: TParamsExpr; out ResolvedEl: TPasResolverResult);
+// function await(const Expr: T): T
+// function await(T; p: TJSPromise): T
+var
+  Param: TPasExpr;
+begin
+  Param:=Params.Params[0];
+  ComputeElement(Param,ResolvedEl,[]);
+  Include(ResolvedEl.Flags,rrfReadable);
+  if Proc=nil then ;
+end;
+
+procedure TPas2JSResolver.BI_AWait_OnEval(Proc: TResElDataBuiltInProc;
+  Params: TParamsExpr; Flags: TResEvalFlags; out Evaluated: TResEvalValue);
+var
+  Param: TPasExpr;
+  ParamResolved: TPasResolverResult;
+begin
+  Evaluated:=nil;
+  if length(Params.Params)<>1 then
+    exit;
+
+  Param:=Params.Params[0];
+  ComputeElement(Param,ParamResolved,[]);
+  Evaluated:=Eval(Param,Flags);
+  if Proc=nil then ;
+end;
+
 constructor TPas2JSResolver.Create;
 var
   bt: TPas2jsBaseType;
@@ -5290,6 +5402,12 @@ begin
   AddBuiltInProc('Debugger','procedure Debugger',
       @BI_Debugger_OnGetCallCompatibility,nil,
       nil,nil,bfCustom,[bipfCanBeStatement]);
+  // ToDo: AddBuiltInProc('Await','function await(T; const Expr: TJSPromise): T',
+  //    @BI_Await_OnGetCallCompatibility,@BI_Await_OnGetCallResult,
+  //    nil,nil,bfCustom,[bipfCanBeStatement]);
+  AddBuiltInProc('AWait','function await(const Expr: T): T',
+      @BI_AWait_OnGetCallCompatibility,@BI_AWait_OnGetCallResult,
+      @BI_AWait_OnEval,nil,bfCustom,[bipfCanBeStatement]);
 end;
 
 function TPas2JSResolver.CheckTypeCastRes(const FromResolved,
@@ -10286,6 +10404,7 @@ begin
           bfCustom:
             case BuiltInProc.Element.Name of
             'Debugger': Result:=ConvertBuiltIn_Debugger(El,AContext);
+            'AWait': Result:=ConvertBuiltIn_AWait(El,AContext);
             else
               RaiseNotSupported(El,AContext,20181126101801,'built in custom proc '+BuiltInProc.Element.Name);
             end;
@@ -13130,6 +13249,25 @@ begin
   if AContext=nil then ;
 end;
 
+function TPasToJSConverter.ConvertBuiltIn_AWait(El: TParamsExpr;
+  AContext: TConvertContext): TJSElement;
+var
+  Param: TPasExpr;
+  JS: TJSElement;
+  AWaitJS: TJSAwaitExpression;
+begin
+  if length(El.Params)=1 then
+    Param:=El.Params[0]
+  else if length(El.Params)=2 then
+    Param:=El.Params[1]
+  else
+    RaiseNotSupported(El,AContext,20200519233919);
+  JS:=ConvertExpression(Param,AContext);
+  AWaitJS:=TJSAwaitExpression(CreateElement(TJSAwaitExpression,El));
+  AWaitJS.A:=JS;
+  Result:=AWaitJS;
+end;
+
 function TPasToJSConverter.ConvertRecordValues(El: TRecordValues;
   AContext: TConvertContext): TJSElement;
 var
@@ -15052,6 +15190,7 @@ begin
 
   FS:=CreateFunctionSt(ImplProc,ImplProc.Body<>nil);
   FD:=FS.AFunction;
+  FD.IsAsync:=El.IsAsync or ImplProc.IsAsync;
   if AssignSt<>nil then
     AssignSt.Expr:=FS
   else

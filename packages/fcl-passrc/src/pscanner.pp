@@ -666,7 +666,8 @@ type
     po_StopOnErrorDirective, // error on user $Error, $message error|fatal
     po_ExtConstWithoutExpr,  // allow typed const without expression in external class and with external modifier
     po_StopOnUnitInterface,  // parse only a unit name and stop at interface keyword
-    po_IgnoreUnknownResource // Ignore resources for which no handler is registered.
+    po_IgnoreUnknownResource,// Ignore resources for which no handler is registered.
+    po_AsyncProcs            // allow async procedure modifier
     );
   TPOptions = set of TPOption;
 
@@ -3321,6 +3322,7 @@ procedure TPascalScanner.HandleIncludeFile(Param: String);
 var
   NewSourceFile: TLineReader;
 begin
+  Param:=Trim(Param);
   if Length(Param)>1 then
     begin
     if (Param[1]='''') then
@@ -3967,6 +3969,7 @@ begin
     if not Handled then
       begin
       Handled:=true;
+      Param:=Trim(Param);
       Case UpperCase(Directive) of
         'ASSERTIONS':
           DoBoolDirective(bsAssertions);
@@ -4081,6 +4084,7 @@ procedure TPascalScanner.HandleBoolDirective(bs: TBoolSwitch;
   const Param: String);
 var
   NewValue: Boolean;
+  
 begin
   if CompareText(Param,'on')=0 then
     NewValue:=true

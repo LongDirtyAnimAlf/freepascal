@@ -73,6 +73,8 @@ unit aoptx86;
         }
         function GetNextInstructionUsingRegTrackingUse(Current: tai; out Next: tai; reg: TRegister): Boolean;
         function RegModifiedByInstruction(Reg: TRegister; p1: tai): boolean; override;
+      private
+        function SkipSimpleInstructions(var hp1: tai): Boolean;
       protected
         class function IsMOVZXAcceptable: Boolean; static; inline;
 
@@ -131,6 +133,7 @@ unit aoptx86;
         function OptPass1FLD(var p : tai) : boolean;
         function OptPass1Cmp(var p : tai) : boolean;
         function OptPass1PXor(var p : tai) : boolean;
+        function OptPass1VPXor(var p: tai): boolean;
 
         function OptPass2MOV(var p : tai) : boolean;
         function OptPass2Imul(var p : tai) : boolean;
@@ -149,6 +152,7 @@ unit aoptx86;
         function PostPeepholeOptTestOr(var p : tai) : Boolean;
         function PostPeepholeOptCall(var p : tai) : Boolean;
         function PostPeepholeOptLea(var p : tai) : Boolean;
+        function PostPeepholeOptPush(var p: tai): Boolean;
 
         procedure ConvertJumpToRET(const p: tai; const ret_p: tai);
 
@@ -164,6 +168,9 @@ unit aoptx86;
     function MatchOperand(const oper: TOper; const reg: TRegister): boolean; inline;
     function MatchOperand(const oper: TOper; const a: tcgint): boolean; inline;
     function MatchOperand(const oper1: TOper; const oper2: TOper): boolean;
+{$if max_operands>2}
+    function MatchOperand(const oper1: TOper; const oper2: TOper; const oper3: TOper): boolean;
+{$endif max_operands>2}
 
     function RefsEqual(const r1, r2: treference): boolean;
 
@@ -275,6 +282,24 @@ unit aoptx86;
               Result:=RefsEqual(oper1.ref^, oper2.ref^);
             else
               internalerror(2013102801);
+          end
+      end;
+
+
+    function MatchOperand(const oper1: TOper; const oper2: TOper; const oper3: TOper): boolean;
+      begin
+        result := (oper1.typ = oper2.typ) and (oper1.typ = oper3.typ);
+
+        if result then
+          case oper1.typ of
+            top_const:
+              Result:=(oper1.val = oper2.val) and (oper1.val = oper3.val);
+            top_reg:
+              Result:=(oper1.reg = oper2.reg) and (oper1.reg = oper3.reg);
+            top_ref:
+              Result:=RefsEqual(oper1.ref^, oper2.ref^) and RefsEqual(oper1.ref^, oper3.ref^);
+            else
+              internalerror(2020052401);
           end
       end;
 
@@ -1695,7 +1720,7 @@ unit aoptx86;
                 )
               ) then
               begin
-                ThisOper^.reg := newreg(getregtype(ANewReg), NewSupReg, getsubreg(p.oper[OperIdx]^.reg));;
+                ThisOper^.reg := newreg(getregtype(ANewReg), NewSupReg, getsubreg(p.oper[OperIdx]^.reg));
                 Result := True;
               end;
           top_ref:
@@ -3957,9 +3982,9 @@ unit aoptx86;
        {
          remove the second (v)pxor from
 
-           (v)pxor reg,reg
+           pxor reg,reg
            ...
-           (v)pxor reg,reg
+           pxor reg,reg
        }
        Result:=false;
        if MatchOperand(taicpu(p).oper[0]^,taicpu(p).oper[1]^) and
@@ -3970,6 +3995,34 @@ unit aoptx86;
          MatchOperand(taicpu(hp1).oper[0]^,taicpu(hp1).oper[1]^) then
          begin
            DebugMsg(SPeepholeOptimization + 'PXorPXor2PXor done',hp1);
+           asml.Remove(hp1);
+           hp1.Free;
+           Result:=true;
+           Exit;
+         end;
+     end;
+
+
+   function TX86AsmOptimizer.OptPass1VPXor(var p: tai): boolean;
+     var
+       hp1: tai;
+     begin
+       {
+         remove the second (v)pxor from
+
+           (v)pxor reg,reg
+           ...
+           (v)pxor reg,reg
+       }
+       Result:=false;
+       if MatchOperand(taicpu(p).oper[0]^,taicpu(p).oper[1]^,taicpu(p).oper[2]^) and
+         MatchOpType(taicpu(p),top_reg,top_reg,top_reg) and
+         GetNextInstructionUsingReg(p,hp1,taicpu(p).oper[0]^.reg) and
+         MatchInstruction(taicpu(hp1),taicpu(p).opcode,[taicpu(p).opsize]) and
+         MatchOperand(taicpu(p).oper[0]^,taicpu(hp1).oper[0]^) and
+         MatchOperand(taicpu(hp1).oper[0]^,taicpu(hp1).oper[1]^,taicpu(hp1).oper[2]^) then
+         begin
+           DebugMsg(SPeepholeOptimization + 'VPXorVPXor2PXor done',hp1);
            asml.Remove(hp1);
            hp1.Free;
            Result:=true;
@@ -5739,25 +5792,26 @@ unit aoptx86;
       end;
 
 
-    function TX86AsmOptimizer.PostPeepholeOptLea(var p : tai) : Boolean;
+    function TX86AsmOptimizer.SkipSimpleInstructions(var hp1 : tai) : Boolean;
+      begin
+        { we can skip all instructions not messing with the stack pointer }
+        while assigned(hp1) and {MatchInstruction(taicpu(hp1),[A_LEA,A_MOV,A_MOVQ,A_MOVSQ,A_MOVSX,A_MOVSXD,A_MOVZX,
+          A_AND,A_OR,A_XOR,A_ADD,A_SHR,A_SHL,A_IMUL,A_SETcc,A_SAR,A_SUB,A_TEST,A_CMOVcc,
+          A_MOVSS,A_MOVSD,A_MOVAPS,A_MOVUPD,A_MOVAPD,A_MOVUPS,
+          A_VMOVSS,A_VMOVSD,A_VMOVAPS,A_VMOVUPD,A_VMOVAPD,A_VMOVUPS],[]) and}
+          ({(taicpu(hp1).ops=0) or }
+           ({(MatchOpType(taicpu(hp1),top_reg,top_reg) or MatchOpType(taicpu(hp1),top_const,top_reg) or
+             (MatchOpType(taicpu(hp1),top_ref,top_reg))
+            ) and }
+            not(RegInInstruction(NR_STACK_POINTER_REG,hp1)) { and not(RegInInstruction(NR_FRAME_POINTER_REG,hp1))}
+           )
+          ) do
+          GetNextInstruction(hp1,hp1);
+        Result:=assigned(hp1);
+      end;
 
-      function SkipSimpleInstructions(var hp1 : tai) : Boolean;
-        begin
-          { we can skip all instructions not messing with the stack pointer }
-          while assigned(hp1) and {MatchInstruction(taicpu(hp1),[A_LEA,A_MOV,A_MOVQ,A_MOVSQ,A_MOVSX,A_MOVSXD,A_MOVZX,
-            A_AND,A_OR,A_XOR,A_ADD,A_SHR,A_SHL,A_IMUL,A_SETcc,A_SAR,A_SUB,A_TEST,A_CMOVcc,
-            A_MOVSS,A_MOVSD,A_MOVAPS,A_MOVUPD,A_MOVAPD,A_MOVUPS,
-            A_VMOVSS,A_VMOVSD,A_VMOVAPS,A_VMOVUPD,A_VMOVAPD,A_VMOVUPS],[]) and}
-            ({(taicpu(hp1).ops=0) or }
-             ({(MatchOpType(taicpu(hp1),top_reg,top_reg) or MatchOpType(taicpu(hp1),top_const,top_reg) or
-               (MatchOpType(taicpu(hp1),top_ref,top_reg))
-              ) and }
-              not(RegInInstruction(NR_STACK_POINTER_REG,hp1)) { and not(RegInInstruction(NR_FRAME_POINTER_REG,hp1))}
-             )
-            ) do
-            GetNextInstruction(hp1,hp1);
-          Result:=assigned(hp1);
-        end;
+
+    function TX86AsmOptimizer.PostPeepholeOptLea(var p : tai) : Boolean;
 
       var
         hp1, hp2, hp3, hp4: tai;
@@ -5818,6 +5872,60 @@ unit aoptx86;
             hp3.free;
             Result:=true;
           end;
+      end;
+
+
+    function TX86AsmOptimizer.PostPeepholeOptPush(var p : tai) : Boolean;
+
+      var
+        hp1, hp2, hp3, hp4: tai;
+      begin
+        Result:=false;
+{$ifdef x86_64}
+        { replace
+            push %rax
+            call   procname
+            pop %rcx
+            ret
+          by
+            jmp    procname
+
+          but do it only on level 4 because it destroys stack back traces
+
+          It depends on the fact, that the sequence push rax/pop rcx is used for stack alignment as rcx is volatile
+          for all supported calling conventions
+        }
+        if (cs_opt_level4 in current_settings.optimizerswitches) and
+          MatchOpType(taicpu(p),top_reg) and
+          (taicpu(p).oper[0]^.reg=NR_RAX) and
+          GetNextInstruction(p, hp1) and
+          { Take a copy of hp1 }
+          SetAndTest(hp1, hp4) and
+          { trick to skip label }
+          ((hp1.typ=ait_instruction) or GetNextInstruction(hp1, hp1)) and
+          SkipSimpleInstructions(hp1) and
+          MatchInstruction(hp1,A_CALL,[S_NO]) and
+          GetNextInstruction(hp1, hp2) and
+          MatchInstruction(hp2,A_POP,[taicpu(p).opsize]) and
+          MatchOpType(taicpu(hp2),top_reg) and
+          (taicpu(hp2).oper[0]^.reg=NR_RCX) and
+          GetNextInstruction(hp2, hp3) and
+          { trick to skip label }
+          ((hp3.typ=ait_instruction) or GetNextInstruction(hp3, hp3)) and
+          MatchInstruction(hp3,A_RET,[S_NO]) and
+          (taicpu(hp3).ops=0) then
+          begin
+            taicpu(hp1).opcode := A_JMP;
+            taicpu(hp1).is_jmp := true;
+            DebugMsg(SPeepholeOptimization + 'PushCallPushRet2Jmp done',p);
+            RemoveCurrentP(p, hp4);
+            AsmL.Remove(hp2);
+            hp2.free;
+            AsmL.Remove(hp3);
+            hp3.free;
+            Result:=true;
+          end;
+{$endif x86_64}
       end;
 
 

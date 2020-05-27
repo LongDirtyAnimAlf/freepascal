@@ -127,7 +127,8 @@ uses
                   result:=OptPass1FLD(p);
                 A_CMP:
                   result:=OptPass1Cmp(p);
-                A_VPXOR,
+                A_VPXOR:
+                  Result:=OptPass1VPXor(p);
                 A_PXOR:
                   Result:=OptPass1PXor(p);
                 else
@@ -194,6 +195,8 @@ uses
                   Result:=PostPeepholeOptCall(p);
                 A_LEA:
                   Result:=PostPeepholeOptLea(p);
+                A_PUSH:
+                  Result:=PostPeepholeOptPush(p);
                 else
                   ;
               end;

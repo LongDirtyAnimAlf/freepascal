@@ -422,7 +422,7 @@ const
     'SysV_ABI_Default',
     'SysV_ABI_CDecl',
     'MS_ABI_Default',
-    'ccMS_ABI_CDecl',
+    'MS_ABI_CDecl',
     'VectorCall'
     );
 
@@ -431,7 +431,8 @@ const
     'IsNested',
     'Static',
     'Varargs',
-    'ReferenceTo'
+    'ReferenceTo',
+    'Async'
     );
 
   PCUProcedureMessageTypeNames: array[TProcedureMessageType] of string = (
@@ -494,8 +495,7 @@ const
     'DispId',
     'NoReturn',
     'Far',
-    'Final',
-    'Async'
+    'Final'
     );
   PCUProcedureModifiersImplProc = [pmInline,pmAssembler,pmCompilerProc,pmNoReturn];
 

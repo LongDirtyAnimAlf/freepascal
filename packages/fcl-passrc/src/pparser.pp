@@ -3507,7 +3507,7 @@ begin
   HadTypeSection:=false;
   while True do
   begin
-    if CurBlock in [DeclNone,declConst,declType] then
+    if CurBlock in [DeclNone,declConst,declType,declVar] then
       Scanner.SetTokenOption(toOperatorToken)
     else
       Scanner.UnSetTokenOption(toOperatorToken);
@@ -4428,8 +4428,10 @@ var
   ArrEl: TPasArrayType;
   i: Integer;
   AObjKind: TPasObjKind;
+  ok: Boolean;
 begin
   Result:=nil;
+  ok := false;
   TypeName := CurTokenString;
   NamePos := CurSourcePos;
   TypeParams:=TFPList.Create;
@@ -4510,7 +4512,10 @@ begin
     else
       ParseExcTypeParamsNotAllowed;
     end;
+    ok:=true;
   finally
+    if (not ok) and (Result<>nil) and not AddToParent then
+      Result.Release({$IFDEF CheckPasTreeRefCount}('CreateElement'){$ENDIF});
     for i:=0 to TypeParams.Count-1 do
       TPasElement(TypeParams[i]).Release{$IFDEF CheckPasTreeRefCount}('CreateElement'){$ENDIF};
     TypeParams.Free;
@@ -4652,7 +4657,8 @@ begin
       case CurToken of
       tkColon: break;
       tkComma: ExpectIdentifier;
-      else     ParseExc(nParserExpectedCommaColon,SParserExpectedCommaColon);
+      else
+        ParseExc(nParserExpectedCommaColon,SParserExpectedCommaColon);
       end;
     Until (CurToken=tkColon);
     OldForceCaret:=Scanner.SetForceCaret(True);

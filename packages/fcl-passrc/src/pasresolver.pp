@@ -1010,6 +1010,7 @@ type
 
   TPasRecordScope = Class(TPasClassOrRecordScope)
   end;
+  TPasRecordScopeClass = class of TPasRecordScope;
 
   TPasClassScopeFlag = (
     pcsfAncestorResolved,
@@ -1501,6 +1502,7 @@ type
     FScopeClass_InitialFinalization: TPasInitialFinalizationScopeClass;
     FScopeClass_Module: TPasModuleScopeClass;
     FScopeClass_Proc: TPasProcedureScopeClass;
+    FScopeClass_Record: TPasRecordScopeClass;
     FScopeClass_Section: TPasSectionScopeClass;
     FScopeClass_WithExpr: TPasWithExprScopeClass;
     FScopeCount: integer;
@@ -1756,8 +1758,8 @@ type
       MaxCount: integer; RaiseOnError: boolean; Signature: string = ''): integer;
     function CheckRaiseTypeArgNo(id: TMaxPrecInt; ArgNo: integer; Param: TPasExpr;
       const ParamResolved: TPasResolverResult; Expected: string; RaiseOnError: boolean): integer;
-    function FindUsedUnitInSection(const aName: string; Section: TPasSection): TPasModule;
-    function FindUsedUnit(const aName: string; aMod: TPasModule): TPasModule;
+    function FindUsedUnitnameInSection(const aName: string; Section: TPasSection): TPasModule;
+    function FindUsedUnitname(const aName: string; aMod: TPasModule): TPasModule;
     procedure FinishAssertCall(Proc: TResElDataBuiltInProc;
       Params: TParamsExpr); virtual;
     function FindSystemClassType(const aUnitName, aClassName: string;
@@ -2346,7 +2348,7 @@ type
     function ProcNeedsParams(El: TPasProcedureType): boolean;
     function IsProcOverride(AncestorProc, DescendantProc: TPasProcedure): boolean;
     function GetTopLvlProc(El: TPasElement): TPasProcedure;
-    function GetParentProc(El: TPasElement): TPasProcedure;
+    function GetParentProc(El: TPasElement; GetDeclProc: boolean): TPasProcedure;
     function GetRangeLength(RangeExpr: TPasExpr): TMaxPrecInt;
     function EvalRangeLimit(RangeExpr: TPasExpr; Flags: TResEvalFlags;
       EvalLow: boolean; ErrorEl: TPasElement): TResEvalValue; virtual; // compute low() or high()
@@ -2364,7 +2366,9 @@ type
     function GetCombinedBaseType(const A, B: TPasResolverResult; ErrorEl: TPasElement): TResolverBaseType; virtual;
     function IsElementSkipped(El: TPasElement): boolean; virtual;
     function FindLocalBuiltInSymbol(El: TPasElement): TPasElement; virtual;
+    function GetFirstSection(WithUnitImpl: boolean): TPasSection;
     function GetLastSection: TPasSection;
+    function FindUsedUnitInSection(aMod: TPasModule; Section: TPasSection): TPasUsesUnit;
     function GetShiftAndMaskForLoHiFunc(BaseType: TResolverBaseType;
       isLoFunc: Boolean; out Mask: LongWord): Integer;
   public
@@ -2399,6 +2403,7 @@ type
     property ScopeClass_InitialFinalization: TPasInitialFinalizationScopeClass read FScopeClass_InitialFinalization write FScopeClass_InitialFinalization;
     property ScopeClass_Module: TPasModuleScopeClass read FScopeClass_Module write FScopeClass_Module;
     property ScopeClass_Procedure: TPasProcedureScopeClass read FScopeClass_Proc write FScopeClass_Proc;
+    property ScopeClass_Record: TPasRecordScopeClass read FScopeClass_Record write FScopeClass_Record;
     property ScopeClass_Section: TPasSectionScopeClass read FScopeClass_Section write FScopeClass_Section;
     property ScopeClass_WithExpr: TPasWithExprScopeClass read FScopeClass_WithExpr write FScopeClass_WithExpr;
     // last element
@@ -6839,7 +6844,7 @@ begin
           RaiseMsg(20170216151616,nInvalidXModifierY,
             sInvalidXModifierY,[GetElementTypeName(Proc),'external, '+ModifierNames[pm]],Proc);
       for ptm in Proc.ProcType.Modifiers do
-        if not (ptm in [ptmOfObject,ptmIsNested,ptmStatic,ptmVarargs,ptmReferenceTo]) then
+        if not (ptm in [ptmOfObject,ptmIsNested,ptmStatic,ptmVarargs,ptmReferenceTo,ptmAsync]) then
           RaiseMsg(20170411171224,nInvalidXModifierY,
             sInvalidXModifierY,[GetElementTypeName(Proc),'external, '+ProcTypeModifiers[ptm]],Proc);
       end;
@@ -11542,6 +11547,7 @@ begin
       and ((C=TPrimitiveExpr)
         or (C=TNilExpr)
         or (C=TBoolConstExpr)
+        or (C=TInheritedExpr)
         or (C=TProcedureExpr))
         or (C=TInlineSpecializeExpr) then
     // ok
@@ -11886,7 +11892,7 @@ begin
 
   if El.Parent.ClassType<>TPasVariant then
     begin
-    Scope:=TPasRecordScope(PushScope(El,TPasRecordScope));
+    Scope:=TPasRecordScope(PushScope(El,ScopeClass_Record));
     Scope.VisibilityContext:=El;
     if TypeParams<>nil then
       begin
@@ -14788,7 +14794,7 @@ begin
   Result:=cIncompatible;
 end;
 
-function TPasResolver.FindUsedUnitInSection(const aName: string; Section: TPasSection): TPasModule;
+function TPasResolver.FindUsedUnitnameInSection(const aName: string; Section: TPasSection): TPasModule;
 var
   Clause: TPasUsesClause;
   i: Integer;
@@ -14808,20 +14814,20 @@ begin
     end;
 end;
 
-function TPasResolver.FindUsedUnit(const aName: string; aMod: TPasModule): TPasModule;
+function TPasResolver.FindUsedUnitname(const aName: string; aMod: TPasModule): TPasModule;
 var
   C: TClass;
 begin
   C:=aMod.ClassType;
   if C.InheritsFrom(TPasProgram) then
-    Result:=FindUsedUnitInSection(aName,TPasProgram(aMod).ProgramSection)
+    Result:=FindUsedUnitnameInSection(aName,TPasProgram(aMod).ProgramSection)
   else if C.InheritsFrom(TPasLibrary) then
-    Result:=FindUsedUnitInSection(aName,TPasLibrary(aMod).LibrarySection)
+    Result:=FindUsedUnitnameInSection(aName,TPasLibrary(aMod).LibrarySection)
   else
     begin
-    Result:=FindUsedUnitInSection(aName,aMod.InterfaceSection);
+    Result:=FindUsedUnitnameInSection(aName,aMod.InterfaceSection);
     if Result<>nil then exit;
-    Result:=FindUsedUnitInSection(aName,aMod.ImplementationSection);
+    Result:=FindUsedUnitnameInSection(aName,aMod.ImplementationSection);
     end
 end;
 
@@ -14858,7 +14864,7 @@ begin
 
   // find unit in uses clauses
   aMod:=RootElement;
-  UtilsMod:=FindUsedUnit(aUnitName,aMod);
+  UtilsMod:=FindUsedUnitname(aUnitName,aMod);
   if UtilsMod=nil then
     if ErrorEl<>nil then
       RaiseIdentifierNotFound(20200523224738,'unit '+aUnitName,ErrorEl)
@@ -15016,7 +15022,7 @@ begin
   if Result<>nil then exit;
 
   // find unit in uses clauses
-  UtilsMod:=FindUsedUnit('system',aMod);
+  UtilsMod:=FindUsedUnitname('system',aMod);
   if UtilsMod=nil then
     RaiseIdentifierNotFound(20190215101210,'System.TVarRec',ErrorEl);
 
@@ -16407,10 +16413,7 @@ var
       writeln('InsertBehind Generic=',GetObjName(GenericEl),' Last=',GetObjName(Last));
       //for i:=0 to List.Count-1 do writeln('  ',GetObjName(TObject(List[i])));
       {$ENDIF}
-      if GenericEl is TPasProcedure then
-        i:=List.Count-1
-      else
-        RaiseNotYetImplemented(20190826150507,El);
+      i:=List.Count-1;
       end;
     List.Insert(i+1,NewEl);
   end;
@@ -17523,9 +17526,6 @@ var
   i: Integer;
   GenScope: TPasGenericScope;
 begin
-  if GenEl.VarArgsType<>nil then
-    RaiseNotYetImplemented(20200524214316,GenEl,'specialize varargs of type');
-
   if GenEl.GenericTemplateTypes<>nil then
     begin
     GenScope:=TPasGenericScope(PushScope(SpecEl,TPasProcTypeScope));
@@ -17547,6 +17547,8 @@ begin
     {$IFDEF CheckPasTreeRefCount},'TPasProcedureType.Args'{$ENDIF});
   for i:=0 to SpecEl.Args.Count-1 do
     FinishArgument(TPasArgument(SpecEl.Args[i]));
+  // varargs
+  SpecializeElType(GenEl,SpecEl,GenEl.VarArgsType,SpecEl.VarArgsType);
 
   // calling convention and proc type modifiers
   SpecEl.CallingConvention:=GenEl.CallingConvention;
@@ -17746,6 +17748,10 @@ var
   GenExpr, SpecExpr: TPasExpr;
   NewClass: TPTreeElement;
 begin
+  if SpecEl.CustomData<>nil then
+    RaiseNotYetImplemented(20200530201007,GenEl,GetObjName(SpecEl.CustomData));
+  PushScope(SpecEl,TPasWithScope);
+
   for i:=0 to GenEl.Expressions.Count-1 do
     begin
     GenExpr:=TPasExpr(GenEl.Expressions[i]);
@@ -17754,8 +17760,8 @@ begin
     NewClass:=TPTreeElement(GenExpr.ClassType);
     SpecExpr:=TPasExpr(NewClass.Create(GenExpr.Name,SpecEl));
     SpecEl.Expressions.Add(SpecExpr);
-    BeginScope(stWithExpr,SpecExpr);
     SpecializeElement(GenExpr,SpecExpr);
+    BeginScope(stWithExpr,SpecExpr);
     end;
   SpecializeElImplEl(GenEl,SpecEl,GenEl.Body,SpecEl.Body);
 
@@ -18038,7 +18044,7 @@ begin
     // specialized generic record
     if SpecEl.CustomData<>nil then
       RaiseNotYetImplemented(20190921204740,SpecEl);
-    SpecScope:=TPasGenericScope(PushScope(SpecEl,TPasRecordScope));
+    SpecScope:=TPasGenericScope(PushScope(SpecEl,ScopeClass_Record));
     SpecScope.VisibilityContext:=SpecEl;
     SpecScope.SpecializedFromItem:=SpecializedItem;
     AddSpecializedTemplateIdentifiers(GenEl.GenericTemplateTypes,
@@ -18118,6 +18124,10 @@ begin
     end;
 
   FinishAncestors(SpecEl);
+
+  if GenEl.Interfaces.Count<>SpecEl.Interfaces.Count then
+    RaiseNotYetImplemented(20200601125556,GenEl,IntToStr(GenEl.Interfaces.Count)+'<>'+IntToStr(SpecEl.Interfaces.Count));
+
   // Note: class scope was created by FinishAncestors
   SpecClassScope:=NoNil(SpecEl.CustomData) as TPasClassScope;
 
@@ -18522,7 +18532,7 @@ begin
   while (i>0) and (not (Scopes[i] is TPasProcedureScope)) do dec(i);
   if i>0 then
     begin
-    // first param is function result
+    // inside procedure: first param is function result
     ProcScope:=TPasProcedureScope(Scopes[i]);
     CtxProc:=TPasProcedure(ProcScope.Element);
     if not (CtxProc.ProcType is TPasFunctionType) then
@@ -20280,6 +20290,7 @@ begin
   FScopeClass_InitialFinalization:=TPasInitialFinalizationScope;
   FScopeClass_Module:=TPasModuleScope;
   FScopeClass_Proc:=TPasProcedureScope;
+  FScopeClass_Record:=TPasRecordScope;
   FScopeClass_Section:=TPasSectionScope;
   FScopeClass_WithExpr:=TPasWithExprScope;
   fExprEvaluator:=TResExprEvaluator.Create;
@@ -22748,11 +22759,14 @@ end;
 
 procedure TPasResolver.GetIncompatibleTypeDesc(const GotType,
   ExpType: TPasResolverResult; out GotDesc, ExpDesc: String);
+var
+  NeedProcSignature: Boolean;
 begin
   {$IFDEF VerbosePasResolver}
   writeln('TPasResolver.GetIncompatibleTypeDesc Got={',GetResolverResultDbg(GotType),'} Expected={',GetResolverResultDbg(ExpType),'}');
   {$ENDIF}
-  if GotType.BaseType<>ExpType.BaseType then
+  if (GotType.BaseType<>ExpType.BaseType)
+      and (GotType.BaseType<>btContext) and (ExpType.BaseType<>btContext) then
     begin
     GotDesc:=GetBaseDescription(GotType);
     if ExpType.BaseType=btNil then
@@ -22766,8 +22780,9 @@ begin
     end
   else if (GotType.LoTypeEl<>nil) and (ExpType.LoTypeEl<>nil) then
     begin
-    if (GotType.LoTypeEl.ClassType=ExpType.LoTypeEl.ClassType)
-        and (GotType.LoTypeEl is TPasProcedureType) then
+    NeedProcSignature:=(GotType.LoTypeEl is TPasProcedureType)
+                   and (ExpType.LoTypeEl is TPasProcedureType);
+    if NeedProcSignature then
       begin
       // procedural types
       GetIncompatibleProcParamsDesc(TPasProcedureType(GotType.LoTypeEl),
@@ -22908,6 +22923,12 @@ begin
   GotDesc:=GotDesc+')';
   ExpDesc:=ExpDesc+')';
 
+  // function result
+  if GotType is TPasFunctionType then
+    GotDesc:=GotDesc+': '+GetTypeDescription(ResolveAliasType(TPasFunctionType(GotType).ResultEl.ResultType));
+  if ExpType is TPasFunctionType then
+    ExpDesc:=ExpDesc+': '+GetTypeDescription(ResolveAliasType(TPasFunctionType(ExpType).ResultEl.ResultType));
+
   // modifiers
   if (ptmOfObject in GotType.Modifiers) and not (ptmOfObject in ExpType.Modifiers) then
     GotDesc:=GotDesc+' of Object'
@@ -22921,16 +22942,35 @@ begin
     GotDesc:=GotDesc+'; static'
   else if not (ptmStatic in GotType.Modifiers) and (ptmStatic in ExpType.Modifiers) then
     ExpDesc:=ExpDesc+'; static';
+  if (ptmAsync in GotType.Modifiers) and not (ptmAsync in ExpType.Modifiers) then
+    GotDesc:=GotDesc+'; async'
+  else if not (ptmAsync in GotType.Modifiers) and (ptmAsync in ExpType.Modifiers) then
+    ExpDesc:=ExpDesc+'; async';
   if (ptmVarargs in GotType.Modifiers) and not (ptmVarargs in ExpType.Modifiers) then
     GotDesc:=GotDesc+'; varargs'
   else if not (ptmVarargs in GotType.Modifiers) and (ptmVarargs in ExpType.Modifiers) then
-    ExpDesc:=ExpDesc+'; varargs';
+    ExpDesc:=ExpDesc+'; varargs'
+  else
+    begin
+    if GotType.VarArgsType<>nil then
+      GotDesc:=GotDesc+'; varargs of '+GetTypeDescription(ResolveAliasType(GotType.VarArgsType));
+    if ExpType.VarArgsType<>nil then
+      ExpDesc:=ExpDesc+'; varargs of '+GetTypeDescription(ResolveAliasType(ExpType.VarArgsType));
+    end;
 
   // calling convention
   if GotType.CallingConvention<>ExpType.CallingConvention then
     begin
     GotDesc:=GotDesc+';'+cCallingConventions[GotType.CallingConvention];
     ExpDesc:=ExpDesc+';'+cCallingConventions[ExpType.CallingConvention];
+    end;
+
+  if GotDesc=ExpDesc then
+    begin
+    if GotType.Parent is TPasAnonymousProcedure then
+      GotDesc:='anonymous '+GotDesc;
+    if ExpType.Parent is TPasAnonymousProcedure then
+      ExpDesc:='anonymous '+ExpDesc;
     end;
 end;
 
@@ -24588,7 +24628,7 @@ begin
         end;
       if RaiseOnIncompatible then
         RaiseIncompatibleTypeRes(20170216152444,nIncompatibleTypesGotExpected,
-          [],LHS,RHS,LErrorEl)
+          [],RHS,LHS,LErrorEl)
       else
         exit(cIncompatible);
     end
@@ -28563,13 +28603,25 @@ begin
     end;
 end;
 
-function TPasResolver.GetParentProc(El: TPasElement): TPasProcedure;
+function TPasResolver.GetParentProc(El: TPasElement; GetDeclProc: boolean
+  ): TPasProcedure;
+var
+  ProcScope: TPasProcedureScope;
 begin
   Result:=nil;
   while El<>nil do
     begin
     if El is TPasProcedure then
-      exit(TPasProcedure(El));
+      begin
+      Result:=TPasProcedure(El);
+      if GetDeclProc and (El.CustomData is TPasProcedureScope) then
+        begin
+        ProcScope:=TPasProcedureScope(El.CustomData);
+        if ProcScope.DeclarationProc<>nil then
+          Result:=ProcScope.DeclarationProc;
+        end;
+      exit;
+      end;
     El:=El.Parent;
     end;
 end;
@@ -29103,6 +29155,25 @@ begin
     Result:=nil;
 end;
 
+function TPasResolver.GetFirstSection(WithUnitImpl: boolean): TPasSection;
+var
+  Module: TPasModule;
+begin
+  Result:=nil;
+  Module:=RootElement;
+  if Module=nil then exit;
+  if Module is TPasProgram then
+    Result:=TPasProgram(Module).ProgramSection
+  else if Module is TPasLibrary then
+    Result:=TPasLibrary(Module).LibrarySection
+  else
+    begin
+    Result:=Module.InterfaceSection;
+    if WithUnitImpl and (Result=nil) then
+      Result:=Module.ImplementationSection;
+    end;
+end;
+
 function TPasResolver.GetLastSection: TPasSection;
 var
   Module: TPasModule;
@@ -29118,6 +29189,19 @@ begin
     Result:=Module.ImplementationSection
   else
     Result:=Module.InterfaceSection;
+end;
+
+function TPasResolver.FindUsedUnitInSection(aMod: TPasModule;
+  Section: TPasSection): TPasUsesUnit;
+var
+  Clause: TPasUsesClause;
+  i: Integer;
+begin
+  Result:=nil;
+  if Section=nil then exit;
+  Clause:=Section.UsesClause;
+  for i:=0 to length(Clause)-1 do
+    if Clause[i].Module=aMod then exit(Clause[i]);
 end;
 
 function TPasResolver.GetShiftAndMaskForLoHiFunc(BaseType: TResolverBaseType;

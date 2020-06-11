@@ -4200,6 +4200,7 @@ x*2Tlinux_Linux
 # z80 targets
 Z*2Tembedded_Embedded
 Z*2Tzxspectrum_ZX Spectrum
+Z*2Tmsxdos_MSX-DOS
 # end of targets section
 **1u<x>_Undefines the symbol <x>
 **1U_Unit options:
@@ -4236,6 +4237,7 @@ A*2Wb_Create a bundle instead of a library (Darwin)
 4*2WB<x>_Set image base to <x> (Windows)
 A*2WB_Create a relocatable image (Windows, Symbian)
 A*2WB<x>_Set image base to <x> (Windows, Symbian)
+Z*2WB<x>_Set image base to <x> (ZX Spectrum)
 3*2WC_Specify console type application (EMX, OS/2, Windows)
 4*2WC_Specify console type application (Windows)
 A*2WC_Specify console type application (Windows)

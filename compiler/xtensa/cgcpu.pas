@@ -140,9 +140,15 @@ implementation
     procedure tcgcpu.init_register_allocators;
       begin
         inherited init_register_allocators;
-        rg[R_INTREGISTER]:=trgintcpu.create(R_INTREGISTER,R_SUBWHOLE,
-            [RS_A2,RS_A3,RS_A4,RS_A5,RS_A6,RS_A7,RS_A8,RS_A9,
-             RS_A10,RS_A11,RS_A12,RS_A13,RS_A14,RS_A15],first_int_imreg,[]);
+        if target_info.abi = abi_xtensa_call0 then
+          rg[R_INTREGISTER]:=trgintcpu.create(R_INTREGISTER,R_SUBWHOLE,
+              [RS_A2,RS_A3,RS_A4,RS_A5,RS_A6,RS_A7,{RS_A8,}RS_A9,
+               RS_A10,RS_A11,RS_A12,RS_A13,RS_A14{,RS_A15}],first_int_imreg,[])
+        else
+          rg[R_INTREGISTER]:=trgintcpu.create(R_INTREGISTER,R_SUBWHOLE,
+              [RS_A2,RS_A3,RS_A4,RS_A5,RS_A6,RS_A7,RS_A8,RS_A9,
+               RS_A10,RS_A11,RS_A12,RS_A13,RS_A14,RS_A15],first_int_imreg,[]);
+
         rg[R_FPUREGISTER]:=trgcpu.create(R_FPUREGISTER,R_SUBNONE,
             [RS_F0,RS_F1,RS_F2,RS_F3,RS_F4,RS_F5,RS_F6,RS_F7,RS_F8,RS_F9,
              RS_F10,RS_F11,RS_F12,RS_F13,RS_F14,RS_F15],first_fpu_imreg,[]);
@@ -597,7 +603,8 @@ implementation
         tmpreg: TRegister;
       begin
         { for now, we use A15 here, however, this is not save as it might contain an argument }
-        ai:=TAiCpu.op_sym_reg(A_J_L,current_asmdata.RefAsmSymbol(s,AT_FUNCTION),NR_A15);
+        ai:=TAiCpu.op_sym_reg(A_J,current_asmdata.RefAsmSymbol(s,AT_FUNCTION),NR_A15);
+        ai.oppostfix := PF_L; // if destination is too far for J then assembler can convert to JX
         ai.is_jmp:=true;
         list.Concat(ai);
       end;
@@ -607,7 +614,7 @@ implementation
       var
         instr: taicpu;
       begin
-        instr:=taicpu.op_reg_sym(A_Bcc,f.register,l);
+        instr:=taicpu.op_reg_sym(A_B,f.register,l);
         instr.condition:=flags_to_cond(f.flag);
         list.concat(instr);
       end;
@@ -736,12 +743,88 @@ implementation
 
     procedure tcgcpu.g_proc_exit(list : TAsmList; parasize : longint;
      nostackframe : boolean);
+      var
+         ref : treference;
+         r : byte;
+         regs : tcpuregisterset;
+         stackmisalignment : pint;
+         regoffset : LongInt;
+         stack_parameters : Boolean;
+         registerarea : PtrInt;
+         l : TAsmLabel;
+         LocalSize: longint;
       begin
         case target_info.abi of
           abi_xtensa_windowed:
             list.Concat(taicpu.op_none(A_RETW));
           abi_xtensa_call0:
-            list.Concat(taicpu.op_none(A_RET));
+            begin
+              if not(nostackframe) then
+                begin
+                  LocalSize:=current_procinfo.calc_stackframe_size;
+                  LocalSize:=align(LocalSize,4);
+                  stack_parameters:=current_procinfo.procdef.stack_tainting_parameter(calleeside);
+                  registerarea:=0;
+                  regs:=rg[R_INTREGISTER].used_in_proc-paramanager.get_volatile_registers_int(pocall_stdcall);
+                  if current_procinfo.framepointer<>NR_STACK_POINTER_REG then
+                    Include(regs,RS_A15);
+                  if pi_do_call in current_procinfo.flags then
+                    Include(regs,RS_A0);
+                  if regs<>[] then
+                     begin
+                       for r:=RS_A0 to RS_A15 do
+                         if r in regs then
+                           inc(registerarea,4);
+                     end;
+                  inc(localsize,registerarea);
+
+                  if LocalSize<>0 then
+                    begin
+                      localsize:=align(localsize,current_settings.alignment.localalignmax);
+                      // Determine reference mode required to access stack
+                      reference_reset(ref,4,[]);
+                      ref.base:=NR_STACK_POINTER_REG;
+                      ref.offset:=localsize;
+                      if ref.offset>1024 then
+                        begin
+                          if ref.offset<=1024+32512 then
+                            begin
+                              // allocation done in proc_entry
+                              //list.concat(taicpu.op_reg_reg_const(A_ADDMI,NR_A8,NR_STACK_POINTER_REG,ref.offset and $fffffc00));
+                              ref.offset:=ref.offset and $3ff;
+                              ref.base:=NR_A8;
+                            end
+                          else
+                            { fix me! }
+                            Internalerror(2020031101);
+                        end;
+
+                      // restore a15 if used
+                      if current_procinfo.framepointer<>NR_STACK_POINTER_REG then
+                        begin
+                          dec(ref.offset,4);
+                          list.concat(taicpu.op_reg_ref(A_L32I,NR_A15,ref));
+                          a_reg_dealloc(list,NR_FRAME_POINTER_REG);
+                        end;
+
+                      // restore rest of registers
+                      if regs<>[] then
+                        begin
+                          for r:=RS_A14 downto RS_A0 do
+                            if r in regs then
+                              begin
+                                dec(ref.offset,4);
+                                list.concat(taicpu.op_reg_ref(A_L32I,newreg(R_INTREGISTER,r,R_SUBWHOLE),ref));
+                              end;
+                        end;
+
+                      // restore stack pointer
+                      list.concat(taicpu.op_reg_reg_const(A_ADDI,NR_STACK_POINTER_REG,NR_STACK_POINTER_REG,localsize));
+                      a_reg_dealloc(list,NR_STACK_POINTER_REG);
+                    end;
+                  end;
+              list.Concat(taicpu.op_none(A_RET));
+            end
           else
             Internalerror(2020031403);
         end;
@@ -787,7 +870,7 @@ implementation
             else
               Internalerror(2020030801);
             end;     
-            instr:=taicpu.op_reg_sym(A_Bcc,reg,l);
+            instr:=taicpu.op_reg_sym(A_B,reg,l);
             instr.condition:=op;
             list.concat(instr);
           end
@@ -803,7 +886,7 @@ implementation
               Internalerror(2020030801);
             end;
 
-            instr:=taicpu.op_reg_const_sym(A_Bcc,reg,a,l);
+            instr:=taicpu.op_reg_const_sym(A_B,reg,a,l);
             instr.condition:=op;
             list.concat(instr);
           end
@@ -817,7 +900,7 @@ implementation
               Internalerror(2020030801);
             end;
 
-            instr:=taicpu.op_reg_const_sym(A_Bcc,reg,a,l);
+            instr:=taicpu.op_reg_const_sym(A_B,reg,a,l);
             instr.condition:=op;
             list.concat(instr);
           end
@@ -840,7 +923,7 @@ implementation
             reg2:=tmpreg;
           end;
 
-        instr:=taicpu.op_reg_reg_sym(A_Bcc,reg2,reg1,l);
+        instr:=taicpu.op_reg_reg_sym(A_B,reg2,reg1,l);
         instr.condition:=TOpCmp2AsmCond[cmp_op];
         list.concat(instr);
       end;
@@ -851,9 +934,12 @@ implementation
         ai : taicpu;
       begin
         if l.bind in [AB_GLOBAL] then
+          begin
           { for now, we use A15 here, however, this is not save as it might contain an argument, I have not figured out a
             solution yet }
-          ai:=taicpu.op_sym_reg(A_J_L,l,NR_A15)
+            ai:=taicpu.op_sym_reg(A_J,l,NR_A15);
+            ai.oppostfix := PF_L;
+          end
         else
           ai:=taicpu.op_sym(A_J,l);
         ai.is_jmp:=true;
@@ -1020,10 +1106,15 @@ implementation
 
 
      procedure tcgcpu.a_loadfpu_reg_reg(list: TAsmList; fromsize,tosize: tcgsize; reg1, reg2: tregister);
+       var
+         ai: taicpu;
        begin
          if not(fromsize in [OS_32,OS_F32]) then
            InternalError(2020032603);
-         list.concat(taicpu.op_reg_reg(A_MOV_S,reg2,reg1));
+
+         ai := taicpu.op_reg_reg(A_MOV,reg2,reg1);
+         ai.oppostfix := PF_S;
+         list.concat(ai);
        end;
 
 
@@ -1111,7 +1202,7 @@ implementation
                   list.concat(taicpu.op_reg_reg_reg(A_ADD, regdst.reghi, regsrc2.reghi, regsrc1.reghi));
 
                   current_asmdata.getjumplabel(no_carry);
-                  instr:=taicpu.op_reg_reg_sym(A_Bcc,tmplo, regsrc2.reglo, no_carry);
+                  instr:=taicpu.op_reg_reg_sym(A_B,tmplo, regsrc2.reglo, no_carry);
                   instr.condition:=C_GEU;
                   list.concat(instr);
                   list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, regdst.reghi, 1));
@@ -1157,7 +1248,7 @@ implementation
                   list.concat(taicpu.op_reg_reg_reg(A_SUB, regdst.reghi, regsrc2.reghi, regsrc1.reghi));
 
                   current_asmdata.getjumplabel(no_carry);
-                  instr:=taicpu.op_reg_reg_sym(A_Bcc, regsrc2.reglo, tmplo, no_carry);
+                  instr:=taicpu.op_reg_reg_sym(A_B, regsrc2.reglo, tmplo, no_carry);
                   instr.condition:=C_GEU;
                   list.concat(instr);
                   list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, regdst.reghi, -1));
@@ -1261,7 +1352,7 @@ implementation
                       list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, regsrc.reghi, 0));
 
                       current_asmdata.getjumplabel(no_carry);
-                      instr:=taicpu.op_reg_reg_sym(A_Bcc,tmplo, regsrc.reglo, no_carry);
+                      instr:=taicpu.op_reg_reg_sym(A_B,tmplo, regsrc.reglo, no_carry);
                       instr.condition:=C_GEU;
                       list.concat(instr);
                       list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, regdst.reghi, 1));

@@ -231,7 +231,8 @@ const
   { 108 } 'Embedded-Z80',
   { 109 } 'ZXSpectrum-Z80',
   { 110 } 'MSX-DOS-Z80',
-  { 111 } 'Darwin-AArch64'
+  { 111 } 'Darwin-AArch64',
+  { 112 } 'AmstradCPC-Z80'
   );
 
 const
@@ -2244,7 +2245,7 @@ const
          { target specific }
         'Executable Stack', {cs_executable_stack}
          { i8086 specific }
-        'Hude code', {cs_huge_code}
+        'Huge code', {cs_huge_code}
         'Win16 smart callbacks', {cs_win16_smartcallbacks}
          { Record usage of checkpointer experimental feature }
         'CheckPointer used', {cs_checkpointer_called}

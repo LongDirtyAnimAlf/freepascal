@@ -51,7 +51,7 @@ type
 
   EScannerError = class(EParserError);
 
-  TJSONOption = (joUTF8,joStrict,joComments,joIgnoreTrailingComma);
+  TJSONOption = (joUTF8,joStrict,joComments,joIgnoreTrailingComma,joIgnoreDuplicates);
   TJSONOptions = set of TJSONOption;
 
 Const
@@ -322,7 +322,6 @@ begin
               '\' : S:='\';
               '/' : S:='/';
               'u' : begin
-                    S:='0000';
                     u2:=0;
                     For I:=1 to 4 do
                       begin

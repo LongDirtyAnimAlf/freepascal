@@ -100,8 +100,8 @@ interface
        tarinfo = record
           id          : tar;
           addfilecmd  : string[10];
-          arfirstcmd  : string[50];
-          arcmd       : string[50];
+          arfirstcmd  : string[60];
+          arcmd       : string[60];
           arfinishcmd : string[11];
        end;
 
@@ -442,6 +442,10 @@ interface
                              + [system_i386_os2]
                              + [system_i386_beos,system_i386_haiku]
                              + [system_powerpc_morphos];
+
+       { all internal COFF writers }
+       asms_int_coff = [as_arm_pecoffwince,as_x86_64_pecoff,as_i386_pecoffwince,
+                        as_i386_pecoffwdosx,as_i386_pecoff,as_i386_coff];
 
        cpu2str : array[TSystemCpu] of string[10] =
             ('','i386','m68k','alpha','powerpc','sparc','vm','ia64','x86_64',

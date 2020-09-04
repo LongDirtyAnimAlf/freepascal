@@ -128,13 +128,14 @@ implementation
 
     uses
       systems,
-      verbose,globals,
+      verbose,globals,cutils,
       symconst,symtable,symtype,symsym,defutil,paramgr,
       pass_2,
       nld,ncnv,
       ncgutil,blockutl,
       cgobj,tgobj,hlcgobj,
       procinfo,
+      aasmtai,
       wpobase;
 
 
@@ -143,13 +144,15 @@ implementation
         { We can skip passing the parameter when:
             the parameter can be optimized as unused
             and the target does not strictly require all parameters (has_strict_proc_signature = false)
-            and fixed stack is used
+            and
+                 fixed stack is used
               or the parameter is in a register
-              or the parameter is $parentfp. }
+              or the parameter is $parentfp and po_delphi_nested_cc is set for the routine. }
         result:=paramanager.can_opt_unused_para(parasym) and
           not paramanager.has_strict_proc_signature and
           (paramanager.use_fixed_stack or
-           (vo_is_parentfp in parasym.varoptions) or
+           ((vo_is_parentfp in parasym.varoptions) and
+            (po_delphi_nested_cc in tabstractprocdef(parasym.owner.defowner).procoptions)) or
            (parasym.paraloc[callerside].Location^.Loc in [LOC_REGISTER,LOC_CREGISTER]));
       end;
 
@@ -304,7 +307,14 @@ implementation
           exit;
         { If we can't skip loading of the parameter, load an undefined dummy value. }
         if not can_skip_para_push(parasym) then
-          hlcg.a_load_undefined_cgpara(current_asmdata.CurrAsmList,left.resultdef,tempcgpara);
+          begin
+            if cs_asm_source in current_settings.globalswitches then
+              current_asmdata.CurrAsmList.concat(tai_comment.Create(strpnew('Parameter '+parasym.realname+' is unused, loading undefined value')));
+            hlcg.a_load_undefined_cgpara(current_asmdata.CurrAsmList,left.resultdef,tempcgpara);
+          end
+        else
+          if cs_asm_source in current_settings.globalswitches then
+            current_asmdata.CurrAsmList.concat(tai_comment.Create(strpnew('Parameter '+parasym.realname+' is unused')));
       end;
 
 
@@ -622,6 +632,18 @@ implementation
           if (cnf_return_value_used in callnodeflags) or
              assigned(funcretnode) then
             hlcg.gen_load_cgpara_loc(current_asmdata.CurrAsmList,realresdef,retloc,location,false);
+
+        if ((location.loc=LOC_REGISTER) and
+            not realresdef.is_intregable) or
+           ((location.loc in [LOC_FPUREGISTER,LOC_MMREGISTER]) and
+            (not realresdef.is_fpuregable or
+             ((location.loc=LOC_MMREGISTER)<>use_vectorfpu(realresdef)))) then
+          begin
+            hlcg.location_force_mem(current_asmdata.CurrAsmList,location,realresdef);
+            { may have been record returned in a floating point register (-> location.size
+              will be the size of the fpuregister instead of the int size of the record) }
+            location.size:=def_cgsize(realresdef);
+          end;
 
         { copy value to the final location if this was already provided to the
           callnode. This must be done after the call node, because the location can
@@ -1045,10 +1067,10 @@ implementation
                end;
 {$endif vtentry}
 
-             name_to_call:=forcedprocname;
              { When methodpointer is typen we don't need (and can't) load
                a pointer. We can directly call the correct procdef (PFV) }
-             if (name_to_call='') and
+             name_to_call:='';
+             if not assigned(overrideprocnamedef) and
                 (po_virtualmethod in procdefinition.procoptions) and
                 not is_objectpascal_helper(tprocdef(procdefinition).struct) and
                 assigned(methodpointer) and
@@ -1142,8 +1164,13 @@ implementation
                         extra_interrupt_code;
                       extra_call_code;
                       retloc.resetiftemp;
-                      if (name_to_call='') then
-                        name_to_call:=tprocdef(procdefinition).mangledname;
+                      if name_to_call='' then
+                        begin
+                          if not assigned(overrideprocnamedef) then
+                            name_to_call:=tprocdef(procdefinition).mangledname
+                          else
+                            name_to_call:=overrideprocnamedef.mangledname;
+                        end;
                       if cnf_inherited in callnodeflags then
                         retloc:=hlcg.a_call_name_inherited(current_asmdata.CurrAsmList,tprocdef(procdefinition),name_to_call,paralocs)
                       { under certain conditions, a static call (i.e. without PIC) can be generated }

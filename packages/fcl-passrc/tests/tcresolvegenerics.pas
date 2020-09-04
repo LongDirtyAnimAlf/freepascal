@@ -20,6 +20,7 @@ type
     procedure TestGen_GenericNotFoundFail;
     procedure TestGen_SameNameSameParamCountFail;
     procedure TestGen_TypeAliasWithoutSpecializeFail;
+    procedure TestGen_TemplNameEqTypeNameFail; // type T<T>
 
     // constraints
     procedure TestGen_ConstraintStringFail;
@@ -29,12 +30,13 @@ type
     procedure TestGen_ConstraintRecordClassFail;
     procedure TestGen_ConstraintArrayFail;
     procedure TestGen_ConstraintConstructor;
-    // ToDo: constraint T:Unit2.TBird
-    // ToDo: constraint T:Unit2.TGen<word>
+    procedure TestGen_ConstraintUnit;
+    // ToDo: constraint T:Unit2.specialize TGen<word>
     procedure TestGen_ConstraintSpecialize;
     procedure TestGen_ConstraintTSpecializeWithT;
-    procedure TestGen_ConstraintTSpecializeAsTFail;
-    procedure TestGen_TemplNameEqTypeNameFail;
+    procedure TestGen_ConstraintTSpecializeAsTFail; // TBird<T; U: T<word>>  and no T<>
+    procedure TestGen_ConstraintTSpecializeWithTFail; // TBird<T: TAnt<T>>
+    procedure TestGen_ConstraintSameNameFail; // TAnt<T:T>
     procedure TestGen_ConstraintInheritedMissingRecordFail;
     procedure TestGen_ConstraintInheritedMissingClassTypeFail;
     procedure TestGen_ConstraintMultiParam;
@@ -42,19 +44,17 @@ type
     procedure TestGen_ConstraintClassType_DotIsAsTypeCast;
     procedure TestGen_ConstraintClassType_ForInT;
     procedure TestGen_ConstraintClassType_IsAs;
-    // ToDo: A<T:T> fail
-    // ToDo: A<T:B<T>> fail
 
     // generic record
     procedure TestGen_RecordLocalNameDuplicateFail;
     procedure TestGen_Record;
     procedure TestGen_RecordDelphi;
-    procedure TestGen_RecordNestedSpecialized;
+    procedure TestGen_RecordNestedSpecialize_ClassRecord;
+    procedure TestGen_RecordNestedSpecialize_Self;
     procedure TestGen_Record_SpecializeSelfInsideFail;
     procedure TestGen_Record_ReferGenericSelfFail;
     procedure TestGen_RecordAnoArray;
-    // ToDo: unitname.specialize TBird<word>.specialize
-    procedure TestGen_RecordNestedSpecialize;
+    // ToDo: unitname.specialize TBird<word>.specialize TAnt<word>
 
     // generic class
     procedure TestGen_Class;
@@ -78,6 +78,7 @@ type
     procedure TestGen_Class_MethodImplConstraintFail;
     procedure TestGen_Class_MethodImplTypeParamNameMismatch;
     procedure TestGen_Class_SpecializeSelfInside;
+    procedure TestGen_Class_AncestorTFail;
     procedure TestGen_Class_GenAncestor;
     procedure TestGen_Class_AncestorSelfFail;
     procedure TestGen_ClassOfSpecializeFail;
@@ -150,6 +151,7 @@ type
     procedure TestGenProc_TypeParamCntOverload;
     procedure TestGenProc_TypeParamCntOverloadNoParams;
     procedure TestGenProc_TypeParamWithDefaultParamDelphiFail;
+    procedure TestGenProc_ParamSpecWithT; // ToDo: Func<T>(Bird: TBird<T>)
     // ToDo: NestedResultAssign
 
     // generic function infer types
@@ -259,6 +261,20 @@ begin
     nXExpectedButYFound);
 end;
 
+procedure TTestResolveGenerics.TestGen_TemplNameEqTypeNameFail;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  generic TBird<TBird> = record v: T; end;',
+  'var r: specialize TBird<word>;',
+  'begin',
+  '']);
+  CheckResolverException('Duplicate identifier "TBird" at afile.pp(4,16)',
+    nDuplicateIdentifier);
+end;
+
 procedure TTestResolveGenerics.TestGen_ConstraintStringFail;
 begin
   StartProgram(false);
@@ -365,6 +381,36 @@ begin
   ParseProgram;
 end;
 
+procedure TTestResolveGenerics.TestGen_ConstraintUnit;
+begin
+  AddModuleWithIntfImplSrc('unit1.pas',
+    LinesToStr([
+    'type',
+    '  TBird = class b1: word; end;',
+    '  generic TAnt<T> = class a1: T; end;',
+    '']),
+    LinesToStr([
+    '']));
+  StartProgram(true,[supTObject]);
+  Add([
+  'uses unit1;',
+  'type',
+  '  generic TCat<T: unit1.TBird> = class v: T; end;',
+  '  generic TFish<T: specialize TAnt<word>> = class v: T; end;',
+  '  TEagle = class(unit1.TBird);',
+  '  TRedAnt = specialize TAnt<word>;',
+  'var',
+  '  eagle: TEagle;',
+  '  redant: TRedAnt;',
+  '  cat: specialize TCat<TEagle>;',
+  '  fish: specialize TFish<TRedAnt>;',
+  'begin',
+  '  cat.v:=eagle;',
+  '  fish.v:=redant;',
+  '']);
+  ParseProgram;
+end;
+
 procedure TTestResolveGenerics.TestGen_ConstraintSpecialize;
 begin
   StartProgram(false);
@@ -422,25 +468,41 @@ begin
   Add([
   '{$mode objfpc}',
   'type',
-  '  generic TAnt<S> = record v: S; end;',
+  '  TObject = class end;',
+  // Note: would work if  generic T<S>  exists
   '  generic TBird<T; U: specialize T<word>> = record v: T; end;',
   'begin',
   '']);
   CheckResolverException('identifier not found "T<>"',nIdentifierNotFound);
 end;
 
-procedure TTestResolveGenerics.TestGen_TemplNameEqTypeNameFail;
+procedure TTestResolveGenerics.TestGen_ConstraintTSpecializeWithTFail;
 begin
   StartProgram(false);
   Add([
   '{$mode objfpc}',
   'type',
-  '  generic TBird<TBird> = record v: T; end;',
-  'var r: specialize TBird<word>;',
+  '  TObject = class end;',
+  '  generic TAnt<S> = class v: S; end;',
+  '  generic TBird<T: specialize TAnt<T>> = class v: T; end;',
+  '  TEagle = specialize TBird<specialize TAnt<word>>;',
   'begin',
   '']);
-  CheckResolverException('Duplicate identifier "TBird" at afile.pp(4,16)',
-    nDuplicateIdentifier);
+  CheckResolverException('identifier not found "T"',nIdentifierNotFound);
+end;
+
+procedure TTestResolveGenerics.TestGen_ConstraintSameNameFail;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  T = TObject;',
+  '  generic TAnt<T:T> = record v: word; end;',
+  'begin',
+  '']);
+  CheckResolverException(sTypeCycleFound,nTypeCycleFound);
 end;
 
 procedure TTestResolveGenerics.TestGen_ConstraintInheritedMissingRecordFail;
@@ -668,7 +730,7 @@ begin
   ParseProgram;
 end;
 
-procedure TTestResolveGenerics.TestGen_RecordNestedSpecialized;
+procedure TTestResolveGenerics.TestGen_RecordNestedSpecialize_ClassRecord;
 begin
   StartProgram(false);
   Add([
@@ -679,6 +741,21 @@ begin
   '  generic TFish<T:class> = record v: T; end;',
   'var f: specialize TFish<specialize TBird<word>>;',
   'begin',
+  '']);
+  ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_RecordNestedSpecialize_Self;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  generic TBird<T> = record v: T; end;',
+  'var',
+  '  a: specialize TBird<specialize TBird<word>>;',
+  'begin',
+  '  a.v.v:=3;',
   '']);
   ParseProgram;
 end;
@@ -725,21 +802,6 @@ begin
   '  b: specialize TBird<array of word>;',
   'begin',
   '  a:=b;',
-  '']);
-  ParseProgram;
-end;
-
-procedure TTestResolveGenerics.TestGen_RecordNestedSpecialize;
-begin
-  StartProgram(false);
-  Add([
-  '{$mode objfpc}',
-  'type',
-  '  generic TBird<T> = record v: T; end;',
-  'var',
-  '  a: specialize TBird<specialize TBird<word>>;',
-  'begin',
-  '  a.v.v:=3;',
   '']);
   ParseProgram;
 end;
@@ -1198,6 +1260,22 @@ begin
   '  if b.v.e then ;',
   '']);
   ParseProgram;
+end;
+
+procedure TTestResolveGenerics.TestGen_Class_AncestorTFail;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode objfpc}',
+  'type',
+  '  TObject = class end;',
+  '  TBird = class end;',
+  '  generic TFish<T: TBird> = class(T)',
+  '    v: T;',
+  '  end;',
+  'begin',
+  '']);
+  CheckResolverException('class type expected, but T found',nXExpectedButYFound);
 end;
 
 procedure TTestResolveGenerics.TestGen_Class_GenAncestor;
@@ -2364,6 +2442,31 @@ begin
   'begin',
   '']);
   CheckResolverException(sParamOfThisTypeCannotHaveDefVal,nParamOfThisTypeCannotHaveDefVal);
+end;
+
+procedure TTestResolveGenerics.TestGenProc_ParamSpecWithT;
+begin
+  StartProgram(false);
+  Add([
+  '{$mode delphi}',
+  'type',
+  '  TObject = class end;',
+  '  TBird<T> = class v: T; end;',
+  '  TAnt = class',
+  '    procedure Func<T: class>(Bird: TBird<T>);',
+  '  end;',
+  'procedure TAnt.Func<T>(Bird: TBird<T>);',
+  'begin',
+  'end;',
+  'var',
+  '  Ant: TAnt;',
+  '  Bird: TBird<TObject>;',
+  '  BirdOfBird: TBird<TBird<TObject>>;',
+  'begin',
+  '  Ant.Func<TObject>(Bird);',
+  '  Ant.Func<TBird<TObject>>(BirdOfBird);',
+  '']);
+  ParseProgram;
 end;
 
 procedure TTestResolveGenerics.TestGenProc_Infer_NeedExplicitFail;

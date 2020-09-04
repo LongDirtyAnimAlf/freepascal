@@ -104,7 +104,8 @@ type
 
   TSystemUnitPart = (
     supTObject,
-    supTVarRec
+    supTVarRec,
+    supTTypeKind
     );
   TSystemUnitParts = set of TSystemUnitPart;
 
@@ -112,6 +113,7 @@ type
 
   TCustomTestResolver = Class(TTestParser)
   Private
+    FHub: TPasResolverHub;
     {$IF defined(VerbosePasResolver) or defined(VerbosePasResolverMem)}
     FStartElementRefCount: int64;
     {$ENDIF}
@@ -173,6 +175,7 @@ type
     procedure StartUnit(NeedSystemUnit: boolean);
     property Modules[Index: integer]: TTestEnginePasResolver read GetModules;
     property ModuleCount: integer read GetModuleCount;
+    property Hub: TPasResolverHub read FHub;
     property ResolverEngine: TTestEnginePasResolver read FResolverEngine;
     property MsgCount: integer read GetMsgCount;
     property Msgs[Index: integer]: TTestResolverMessage read GetMsgs;
@@ -320,6 +323,7 @@ type
     Procedure TestIncStringFail;
     Procedure TestTypeInfo;
     Procedure TestTypeInfo_FailRTTIDisabled;
+    Procedure TestGetTypeKind;
 
     // statements
     Procedure TestForLoop;
@@ -369,6 +373,7 @@ type
     Procedure TestUnit_DottedPrg;
     Procedure TestUnit_DottedUnit;
     Procedure TestUnit_DottedExpr;
+    Procedure TestUnit_DottedSystem;
     Procedure TestUnit_DuplicateDottedUsesFail;
     Procedure TestUnit_DuplicateUsesDiffName;
     Procedure TestUnit_Unit1DotUnit2Fail;
@@ -1060,6 +1065,7 @@ begin
   FStartElementRefCount:=TPasElement.GlobalRefCount;
   {$ENDIF}
   FModules:=TObjectList.Create(true);
+  FHub:=TPasResolverHub.Create(Self);
   inherited SetUp;
   Parser.Options:=Parser.Options+[po_ResolveStandardTypes];
   Scanner.OnDirective:=@OnScannerDirective;
@@ -1096,6 +1102,7 @@ begin
     FModules.OwnsObjects:=true;
     FreeAndNil(FModules);// free all other modules
     end;
+  FreeAndNil(FHub);
   {$IFDEF VerbosePasResolverMem}
   writeln('TTestResolver.TearDown inherited');
   {$ENDIF}
@@ -2171,6 +2178,7 @@ begin
   Result.AddObjFPCBuiltInIdentifiers;
   Result.OnFindUnit:=@OnPasResolverFindUnit;
   Result.OnLog:=@OnPasResolverLog;
+  Result.Hub:=Hub;
   FModules.Add(Result);
 end;
 
@@ -2205,6 +2213,15 @@ begin
   Intf:=TStringList.Create;
   // interface
   Intf.Add('type');
+  if supTTypeKind in Parts then
+    begin
+    Intf.Add('  TTypeKind=(tkUnknown,tkInteger,tkChar,tkEnumeration,tkFloat,');
+    Intf.Add('             tkSet,tkMethod,tkSString,tkLString,tkAString,');
+    Intf.Add('             tkWString,tkVariant,tkArray,tkRecord,tkInterface,');
+    Intf.Add('             tkClass,tkObject,tkWChar,tkBool,tkInt64,tkQWord,');
+    Intf.Add('             tkDynArray,tkInterfaceRaw,tkProcVar,tkUString,tkUChar,');
+    Intf.Add('             tkHelper,tkFile,tkClassRef,tkPointer);');
+    end;
   Intf.Add('  integer=longint;');
   Intf.Add('  sizeint=int64;');
     //'const',
@@ -5060,6 +5077,44 @@ begin
   CheckResolverException(sSymbolCannotBePublished,nSymbolCannotBePublished);
 end;
 
+procedure TTestResolver.TestGetTypeKind;
+begin
+  StartProgram(true,[supTTypeKind]);
+  Add([
+  'type',
+  '  integer = longint;',
+  '  TRec = record',
+  '    v: integer;',
+  '  end;',
+  '  TClass = class of TObject;',
+  '  TObject = class',
+  '    class function ClassType: TClass; virtual; abstract;',
+  '  end;',
+  'var',
+  '  i: integer;',
+  '  s: string;',
+  '  p: pointer;',
+  '  r: TRec;',
+  '  o: TObject;',
+  '  c: TClass;',
+  '  k: TTypeKind;',
+  'begin',
+  '  k:=gettypekind(integer);',
+  '  k:=gettypekind(longint);',
+  '  k:=gettypekind(i);',
+  '  k:=gettypekind(s);',
+  '  k:=gettypekind(p);',
+  '  k:=gettypekind(r.v);',
+  '  k:=gettypekind(TObject.ClassType);',
+  '  k:=gettypekind(o.ClassType);',
+  '  k:=gettypekind(o);',
+  '  k:=gettypekind(c);',
+  '  k:=gettypekind(c.ClassType);',
+  '  k:=gettypekind(k);',
+  '']);
+  ParseProgram;
+end;
+
 procedure TTestResolver.TestForLoop;
 begin
   StartProgram(false);
@@ -5918,6 +5973,31 @@ begin
   'begin',
   '  unitdots3.sub3.unit3.dosome;',
   '']);
+  ParseProgram;
+end;
+
+procedure TTestResolver.TestUnit_DottedSystem;
+begin
+  AddModuleWithIntfImplSrc('System.SysUtils.pas',
+    LinesToStr([
+    'type TFlag = word;'
+    ]),
+    ''
+    );
+  AddModuleWithIntfImplSrc('UnitA.pas',
+    LinesToStr([
+    ''
+    ]),
+    LinesToStr([
+    'uses System.SysUtils;',
+    'type TSize = TFlag;',
+    'type TWidth = System.SysUtils.TFlag;',
+    'type TBird = System.integer;',
+    'type TEagle = integer;',
+    '']) );
+  StartProgram(true);
+  Add('uses UnitA;');
+  Add('begin');
   ParseProgram;
 end;
 
@@ -13146,23 +13226,29 @@ begin
   Add([
   'type',
   '  TObject = class',
+  '  end;',
+  '  TBird = class',
   '    function GetB(Index: longint): longint;',
   '    procedure SetB(Index: longint; Value: longint);',
   '    property B[Index: longint]: longint read GetB write SetB; default;',
   '  end;',
-  'function TObject.GetB(Index: longint): longint;',
+  'function TBird.GetB(Index: longint): longint;',
   'begin',
   'end;',
-  'procedure TObject.SetB(Index: longint; Value: longint);',
+  'procedure TBird.SetB(Index: longint; Value: longint);',
   'begin',
   '  if Value=Self[Index] then ;',
   '  Self[Index]:=Value;',
   'end;',
-  'var o: TObject;',
+  'var',
+  '  b: TBird;',
+  '  o: TObject;',
   'begin',
-  '  o[3]:=4;',
-  '  if o[5]=6 then;',
-  '  if 7=o[8] then;']);
+  '  b[3]:=4;',
+  '  if b[5]=6 then;',
+  '  if 7=b[8] then;',
+  '  (o as TBird)[9]:=10;',
+  '']);
   ParseProgram;
 end;
 

@@ -74,6 +74,7 @@ interface
       private
         FClassName: string;
         FOverlayName: string;
+        FFirstSym: TObjSymbol;
         FCombination: TOmfSegmentCombination;
         FUse: TOmfSegmentUse;
         FPrimaryGroup: TObjSectionGroup;
@@ -81,6 +82,8 @@ interface
         FMZExeUnifiedLogicalSegment: TMZExeUnifiedLogicalSegment;
         FLinNumEntries: TOmfSubRecord_LINNUM_MsLink_LineNumberList;
         function GetOmfAlignment: TOmfSegmentAlignment;
+      protected
+        function GetAltName: string; override;
       public
         constructor create(AList:TFPHashObjectList;const Aname:string;Aalign:longint;Aoptions:TObjSectionOptions);override;
         destructor destroy;override;
@@ -800,7 +803,7 @@ implementation
 
     uses
        SysUtils,
-       cutils,verbose,globals,
+       cutils,verbose,globals,fpccrc,
        fmodule,aasmtai,aasmdata,
        ogmap,owomflib,elfbase,
        version
@@ -1006,6 +1009,14 @@ implementation
         end;
       end;
 
+    function TOmfObjSection.GetAltName: string;
+      begin
+        if FFirstSym<>nil then
+          result:='/'+FFirstSym.Name
+        else
+          result:='';
+      end;
+
     constructor TOmfObjSection.create(AList: TFPHashObjectList;
           const Aname: string; Aalign: longint; Aoptions: TObjSectionOptions);
       begin
@@ -1042,7 +1053,7 @@ implementation
         if current_settings.x86memorymodel in x86_far_code_models then
           begin
             if cs_huge_code in current_settings.moduleswitches then
-              result:=aname + '_TEXT'
+              result:=TrimStrCRC32(aname,30) + '_TEXT'
             else
               result:=current_module.modulename^ + '_TEXT';
           end
@@ -1983,6 +1994,8 @@ implementation
             objsym.objsection:=objsec;
             objsym.offset:=PubDefElem.PublicOffset;
             objsym.size:=0;
+            if (objsym.bind=AB_GLOBAL) and (objsec.FFirstSym=nil) then
+              objsec.FFirstSym:=objsym;
           end;
         PubDefRec.Free;
         Result:=True;
@@ -3533,7 +3546,13 @@ cleanup:
                 else if assigned(objreloc.symbol.group) then
                   framebase:=TMZExeUnifiedLogicalGroup(ExeUnifiedLogicalGroups.Find(objreloc.symbol.group.Name)).MemPos
                 else
-                  framebase:=TOmfObjSection(objreloc.symbol.objsection).MZExeUnifiedLogicalSegment.MemBasePos;
+                  if assigned(TOmfObjSection(objreloc.symbol.objsection).MZExeUnifiedLogicalSegment) then
+                    framebase:=TOmfObjSection(objreloc.symbol.objsection).MZExeUnifiedLogicalSegment.MemBasePos
+                  else
+                    begin
+                      framebase:=0;
+                      Comment(V_Warning,'Encountered an OMF reference to a symbol, that is not present in the final executable: '+objreloc.symbol.Name);
+                    end;
                 case objreloc.typ of
                   RELOC_ABSOLUTE16,RELOC_ABSOLUTE32,RELOC_SEG,RELOC_FARPTR,RELOC_FARPTR48:
                     fixupamount:=target-framebase;
@@ -3582,7 +3601,7 @@ cleanup:
                     else
                       begin
                         framebase:=0;
-                        Comment(V_Warning,'Encountered an OMF reference to a section, that has been removed by smartlinking: '+TOmfObjSection(objreloc.objsection).Name);
+                        Comment(V_Warning,'Encountered an OMF reference to a section, that is not present in the final executable: '+TOmfObjSection(objreloc.objsection).Name);
                       end;
                   end;
                 case objreloc.typ of

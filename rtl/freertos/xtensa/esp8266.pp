@@ -9,7 +9,6 @@ unit esp8266;
   interface
 
 {$linklib esp8266, static}
-{$linklib util, static}
 {$linklib log, static}
 {$linklib c_fnano, static}
 {$linklib newlib, static}
@@ -29,11 +28,6 @@ unit esp8266;
 {$linklib pp, static}
 {$linklib stdc++, static}
 {$linklib pthread, static}
-{$linklib wpa_supplicant, static}
-//{$linklib esp_event, static} // Not in V3.3
-{$linklib wpa, static}  // not in master version
-{$linklib lwip, static}
-{$linklib mbedtls, static}
 
   implementation
 
@@ -62,7 +56,7 @@ unit esp8266;
         if operatingsystem_result <> 0 then
           writeln('Runtime error ', operatingsystem_result);
 
-        writeln('_haltproc called...');
+        writeln('_haltproc called, exit code: ',operatingsystem_result);
         flushOutput(TextRec(Output));
         repeat
           // Allow other tasks to run

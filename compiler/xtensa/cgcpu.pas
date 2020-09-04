@@ -80,6 +80,8 @@ interface
         procedure maybeadjustresult(list: TAsmList; op: TOpCg; size: tcgsize; dst: tregister);
 
         procedure g_overflowcheck(list: TAsmList; const Loc:tlocation; def:tdef);override;
+
+        function create_data_entry(symbol: TAsmSymbol; offset: asizeint): TAsmLabel;
       end;
 
       tcg64fxtensa = class(tcg64f32)
@@ -314,11 +316,7 @@ implementation
           begin
             reference_reset(hr,4,[]);
 
-            current_asmdata.getjumplabel(l);
-            cg.a_label(current_procinfo.aktlocaldata,l);
-            current_procinfo.aktlocaldata.concat(tai_const.Create_32bit(longint(a)));
-
-            hr.symbol:=l;
+            hr.symbol:=create_data_entry(nil,longint(a));
             list.concat(taicpu.op_reg_ref(A_L32R,reg,hr));
           end;
       end;
@@ -334,18 +332,11 @@ implementation
         if assigned(ref.symbol) or (ref.offset<-2048) or (ref.offset>2047) then
           begin
             reference_reset(tmpref,4,[]);
-            current_asmdata.getjumplabel(l);
-            cg.a_label(current_procinfo.aktlocaldata,l);
             tmpreg:=NR_NO;
-
-            if assigned(ref.symbol) then
-              current_procinfo.aktlocaldata.concat(tai_const.create_sym_offset(ref.symbol,ref.offset))
-            else if ref.offset<>0 then
-              current_procinfo.aktlocaldata.concat(tai_const.Create_32bit(ref.offset));
 
             { load consts entry }
             tmpreg:=getintregister(list,OS_INT);
-            tmpref.symbol:=l;
+            tmpref.symbol:=create_data_entry(ref.symbol,ref.offset);
             list.concat(taicpu.op_reg_ref(A_L32R,tmpreg,tmpref));
 
             if ref.base<>NR_NO then
@@ -527,6 +518,8 @@ implementation
           list.concat(taicpu.op_reg_reg_const(A_SRLI,dst,src,a))
         else if (op=OP_SHR) and (a>15) and (a<=31) then
           list.concat(taicpu.op_reg_reg_const_const(A_EXTUI,dst,src,a,32-a))
+        else if (op=OP_AND) and (63-BsrQWord(a)+PopCnt(QWord(a))=64) and (PopCnt(QWord(a))<=16) then
+          list.concat(taicpu.op_reg_reg_const_const(A_EXTUI,dst,src,0,PopCnt(QWord(a))))
         else
           begin
             tmpreg:=getintregister(list,size);
@@ -706,31 +699,35 @@ implementation
                 begin
                   if stack_parameters and (pi_estimatestacksize in current_procinfo.flags) then
                     begin
+                      list.concat(tai_comment.Create(strpnew('Stackframe size was estimated before code generation due to stack parameters')));
+                      list.concat(tai_comment.Create(strpnew('  Calculated stackframe size: '+tostr(txtensaprocinfo(current_procinfo).stackframesize))));
+                      list.concat(tai_comment.Create(strpnew('  Max. outgoing parameter size: '+tostr(txtensaprocinfo(current_procinfo).maxpushedparasize))));
+                      list.concat(tai_comment.Create(strpnew('  End of last temporary location: '+tostr(tg.lasttemp))));
+                      list.concat(tai_comment.Create(strpnew('  Max. window rotation in bytes: '+tostr(txtensaprocinfo(current_procinfo).maxcall*4))));
+                      list.concat(tai_comment.Create(strpnew('  Required size after code generation: '+tostr(localsize))));
+
+                      { should never happen as localsize is derived from
+                        txtensaprocinfo(current_procinfo).stackframesize }
                       if localsize>txtensaprocinfo(current_procinfo).stackframesize then
-                        internalerror(2020031402)
-                      else
-                        localsize:=txtensaprocinfo(current_procinfo).stackframesize-registerarea;
+                        internalerror(2020031402);
+                      localsize:=txtensaprocinfo(current_procinfo).stackframesize;
                     end
                   else
                     begin
-                      { default spill area }
+                      localsize:=align(localsize,current_settings.alignment.localalignmax);
                       inc(localsize,4*4);
-                      { additional spill area? }
                       if pi_do_call in current_procinfo.flags then
                         inc(localsize,txtensaprocinfo(current_procinfo).maxcall*4);
-
-                      localsize:=align(localsize,current_settings.alignment.localalignmax);
                     end;
 
+                  if localsize<0 then
+                    Internalerror(2020083001);
                   if localsize>32760 then
                     begin
                       list.concat(taicpu.op_reg_const(A_ENTRY,NR_STACK_POINTER_REG,32));
 
                       reference_reset(ref,4,[]);
-                      current_asmdata.getjumplabel(l);
-                      cg.a_label(current_procinfo.aktlocaldata,l);
-                      current_procinfo.aktlocaldata.concat(tai_const.Create_32bit(longint(localsize-32)));
-                      ref.symbol:=l;
+                      ref.symbol:=create_data_entry(nil,longint(localsize-32));
                       list.concat(taicpu.op_reg_ref(A_L32R,NR_A8,ref));
 
                       list.concat(taicpu.op_reg_reg_reg(A_SUB,NR_A8,NR_STACK_POINTER_REG,NR_A8));
@@ -801,7 +798,7 @@ implementation
                             end
                           else
                             { fix me! }
-                            Internalerror(2020031101);
+                            Internalerror(2020031102);
                         end;
 
                       // restore a15 if used
@@ -1174,12 +1171,43 @@ implementation
       end;
 
 
+    function tcgcpu.create_data_entry(symbol: TAsmSymbol;offset: asizeint): TAsmLabel;
+      var
+        hp: tai;
+      begin
+        hp:=tai(current_procinfo.aktlocaldata.first);
+        while assigned(hp) do
+          begin
+            if (hp.typ=ait_label) and assigned(hp.Next) and
+              (tai(hp.Next).typ=ait_const) and
+              (tai_const(hp.Next).consttype=aitconst_ptr) and
+              (tai_const(hp.Next).sym=symbol) and
+              (tai_const(hp.Next).endsym=nil) and
+              ((assigned(symbol) and (tai_const(hp.Next).symofs=offset)) or
+               (not(assigned(symbol)) and (tai_const(hp.Next).value=offset))
+              ) then
+              begin
+                Result:=tai_label(hp).labsym;
+                exit;
+              end;
+            hp:=tai(hp.Next);
+          end;
+
+        current_asmdata.getjumplabel(Result);
+        cg.a_label(current_procinfo.aktlocaldata,Result);
+
+        if assigned(symbol) then
+          current_procinfo.aktlocaldata.concat(tai_const.create_sym_offset(symbol,offset))
+        else
+          current_procinfo.aktlocaldata.concat(tai_const.Create_32bit(offset));
+      end;
+
+
     procedure tcg64fxtensa.a_op64_reg_reg_reg(list: TAsmList;op:TOpCG;size : tcgsize;regsrc1,regsrc2,regdst : tregister64);
       var
-        signed: Boolean;
-        tmplo, carry, tmphi, hreg: TRegister;
         instr: taicpu;
         no_carry: TAsmLabel;
+        tmpreg: TRegister;
       begin
         case op of
           OP_NEG,
@@ -1196,95 +1224,32 @@ implementation
             end;
           OP_ADD:
             begin
-              signed:=(size in [OS_S64]);
-                                                       
-              tmplo := cg.GetIntRegister(list,OS_S32);
-              carry := cg.GetIntRegister(list,OS_S32);
-
-              list.concat(taicpu.op_reg_reg_reg(A_ADD, tmplo, regsrc2.reglo, regsrc1.reglo));
-              if signed then
-                begin
-                  list.concat(taicpu.op_reg_reg_reg(A_ADD, regdst.reghi, regsrc2.reghi, regsrc1.reghi));
-
-                  current_asmdata.getjumplabel(no_carry);
-                  instr:=taicpu.op_reg_reg_sym(A_B,tmplo, regsrc2.reglo, no_carry);
-                  instr.condition:=C_GEU;
-                  list.concat(instr);
-                  list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, regdst.reghi, 1));
-                  cg.a_label(list,no_carry);
-                end
-              else
-                begin
-                  cg.a_load_const_reg(list,OS_INT,1,carry);
-                  current_asmdata.getjumplabel(no_carry);
-                  cg.a_cmp_reg_reg_label(list,OS_INT,OC_B,tmplo, regsrc2.reglo,no_carry);
-                  cg.a_load_const_reg(list,OS_INT,0,carry);
-                  cg.a_label(list,no_carry);
-
-                  cg.a_load_reg_reg(list,OS_INT,OS_INT,tmplo,regdst.reglo);
-
-                  tmphi:=cg.GetIntRegister(list,OS_INT);
-                  hreg:=cg.GetIntRegister(list,OS_INT);
-                  cg.a_load_const_reg(list,OS_INT,$80000000,hreg);
-                  // first add carry to one of the addends
-                  list.concat(taicpu.op_reg_reg_reg(A_ADD, tmphi, regsrc2.reghi, carry));
-
-                  cg.a_load_const_reg(list,OS_INT,1,carry);
-                  current_asmdata.getjumplabel(no_carry);
-                  cg.a_cmp_reg_reg_label(list,OS_INT,OC_B,tmphi, regsrc2.reghi,no_carry);
-                  cg.a_load_const_reg(list,OS_INT,0,carry);
-                  cg.a_label(list,no_carry);
-
-                  list.concat(taicpu.op_reg_reg_reg(A_SUB, carry, hreg, carry));
-                  // then add another addend
-                  list.concat(taicpu.op_reg_reg_reg(A_ADD, regdst.reghi, tmphi, regsrc1.reghi));
-                end;
+              if (regsrc1.reglo=regdst.reglo) or (regsrc1.reghi=regdst.reghi) then
+                Internalerror(2020082205);
+              list.concat(taicpu.op_reg_reg_reg(A_ADD, regdst.reglo, regsrc2.reglo, regsrc1.reglo));
+              list.concat(taicpu.op_reg_reg_reg(A_ADD, regdst.reghi, regsrc2.reghi, regsrc1.reghi));
+              current_asmdata.getjumplabel(no_carry);
+              cg.a_cmp_reg_reg_label(list,OS_INT,OC_AE, regsrc1.reglo, regdst.reglo, no_carry);
+              list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, regdst.reghi, 1));
+              cg.a_label(list,no_carry);
             end;
           OP_SUB:
             begin
-              signed:=(size in [OS_S64]);
-
-              tmplo := cg.GetIntRegister(list,OS_S32);
-              carry := cg.GetIntRegister(list,OS_S32);
-
-              list.concat(taicpu.op_reg_reg_reg(A_SUB, tmplo, regsrc2.reglo, regsrc1.reglo));
-              if signed then
+              if (regsrc1.reglo=regdst.reglo) or (regsrc1.reghi=regdst.reghi) then
+                Internalerror(2020082206);
+              { we need the original src2 value for the comparison, do not overwrite it }
+              if regsrc2.reglo=regdst.reglo then
                 begin
-                  list.concat(taicpu.op_reg_reg_reg(A_SUB, regdst.reghi, regsrc2.reghi, regsrc1.reghi));
-
-                  current_asmdata.getjumplabel(no_carry);
-                  instr:=taicpu.op_reg_reg_sym(A_B, regsrc2.reglo, tmplo, no_carry);
-                  instr.condition:=C_GEU;
-                  list.concat(instr);
-                  list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, regdst.reghi, -1));
-                  cg.a_label(list,no_carry);
-                end
-              else
-                begin
-                  cg.a_load_const_reg(list,OS_INT,1,carry);
-                  current_asmdata.getjumplabel(no_carry);
-                  cg.a_cmp_reg_reg_label(list,OS_INT,OC_B, regsrc2.reglo, tmplo, no_carry);
-                  cg.a_load_const_reg(list,OS_INT,0,carry);
-                  cg.a_label(list,no_carry);
-
-                  cg.a_load_reg_reg(list,OS_INT,OS_INT,tmplo,regdst.reglo);
-
-                  tmphi:=cg.GetIntRegister(list,OS_INT);
-                  hreg:=cg.GetIntRegister(list,OS_INT);
-                  cg.a_load_const_reg(list,OS_INT,$80000000,hreg);
-                  // first add carry to one of the addends
-                  list.concat(taicpu.op_reg_reg_reg(A_SUB, regsrc2.reghi, tmplo, carry));
-
-                  cg.a_load_const_reg(list,OS_INT,1,carry);
-                  current_asmdata.getjumplabel(no_carry);
-                  cg.a_cmp_reg_reg_label(list,OS_INT,OC_B,tmphi, regsrc2.reghi,no_carry);
-                  cg.a_load_const_reg(list,OS_INT,0,carry);
-                  cg.a_label(list,no_carry);
-
-                  list.concat(taicpu.op_reg_reg_reg(A_SUB, carry, hreg, carry));
-                  // then add another addend
-                  list.concat(taicpu.op_reg_reg_reg(A_SUB, regdst.reghi, tmphi, regsrc1.reghi));
+                  tmpreg:=cg.GetIntRegister(list,OS_S32);
+                  cg.a_load_reg_reg(list,OS_INT,OS_INT,regsrc2.reglo,tmpreg);
+                  regsrc2.reglo:=tmpreg;
                 end;
+              list.concat(taicpu.op_reg_reg_reg(A_SUB, regdst.reglo, regsrc2.reglo, regsrc1.reglo));
+              list.concat(taicpu.op_reg_reg_reg(A_SUB, regdst.reghi, regsrc2.reghi, regsrc1.reghi));
+              current_asmdata.getjumplabel(no_carry);
+              cg.a_cmp_reg_reg_label(list,OS_INT,OC_AE, regsrc1.reglo, regsrc2.reglo, no_carry);
+              list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, regdst.reghi, -1));
+              cg.a_label(list,no_carry);
             end;
           else
             internalerror(2020030813);
@@ -1305,7 +1270,7 @@ implementation
               list.concat(taicpu.op_reg_reg(A_NEG,regdst.reghi,regsrc.reghi));
               list.concat(taicpu.op_reg_reg_const(A_ADDI,tmpreg,regdst.reghi,-1));
               instr:=taicpu.op_reg_reg_reg(A_MOV,regdst.reghi,tmpreg,regdst.reglo);
-              instr.condition:=C_EQZ;
+              instr.condition:=C_NEZ;
               list.concat(instr);
             end;
           OP_NOT:
@@ -1321,12 +1286,9 @@ implementation
 
     procedure tcg64fxtensa.a_op64_const_reg_reg(list : TAsmList; op : TOpCG; size : tcgsize; value : int64; regsrc,regdst : tregister64);
       var
-        tmpreg,tmplo,carry,tmphi,hreg: tregister;
         tmpreg64 : tregister64;
-        b : byte;
-        signed : Boolean;
         no_carry : TAsmLabel;
-        instr : taicpu;
+        tmpreg: tregister;
       begin
         case op of
           OP_NEG,
@@ -1346,49 +1308,20 @@ implementation
               { could do better here (hi(value) in 248..2047), for now we support only the simple cases }
               if (value>=-2048) and (value<=2047) then
                 begin
-                  signed:=(size in [OS_S64]);
-
-                  tmplo := cg.GetIntRegister(list,OS_S32);
-                  carry := cg.GetIntRegister(list,OS_S32);
-
-                  list.concat(taicpu.op_reg_reg_const(A_ADDI, tmplo, regsrc.reglo, value));
-                  if signed then
+                  { we need the original src value for the comparison, do not overwrite it }
+                  if regsrc.reglo=regdst.reglo then
                     begin
-                      list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, regsrc.reghi, 0));
+                      tmpreg:=cg.GetIntRegister(list,OS_S32);
+                      cg.a_load_reg_reg(list,OS_INT,OS_INT,regsrc.reglo,tmpreg);
+                      regsrc.reglo:=tmpreg;
+                    end;
 
-                      current_asmdata.getjumplabel(no_carry);
-                      instr:=taicpu.op_reg_reg_sym(A_B,tmplo, regsrc.reglo, no_carry);
-                      instr.condition:=C_GEU;
-                      list.concat(instr);
-                      list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, regdst.reghi, 1));
-                      cg.a_label(list,no_carry);
-                    end
-                  else
-                    begin
-                      cg.a_load_const_reg(list,OS_INT,1,carry);
-                      current_asmdata.getjumplabel(no_carry);
-                      cg.a_cmp_reg_reg_label(list,OS_INT,OC_B,tmplo, regsrc.reglo,no_carry);
-                      cg.a_load_const_reg(list,OS_INT,0,carry);
-                      cg.a_label(list,no_carry);
-
-                      cg.a_load_reg_reg(list,OS_INT,OS_INT,tmplo,regdst.reglo);
-
-                      tmphi:=cg.GetIntRegister(list,OS_INT);
-                      hreg:=cg.GetIntRegister(list,OS_INT);
-                      cg.a_load_const_reg(list,OS_INT,$80000000,hreg);
-                      // first add carry to one of the addends
-                      list.concat(taicpu.op_reg_reg_reg(A_ADD, tmphi, regsrc.reghi, carry));
-
-                      cg.a_load_const_reg(list,OS_INT,1,carry);
-                      current_asmdata.getjumplabel(no_carry);
-                      cg.a_cmp_reg_reg_label(list,OS_INT,OC_B,tmphi, regsrc.reghi,no_carry);
-                      cg.a_load_const_reg(list,OS_INT,0,carry);
-                      cg.a_label(list,no_carry);
-
-                      list.concat(taicpu.op_reg_reg_reg(A_SUB, carry, hreg, carry));
-                      // then add another addend
-                      list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, tmphi, 0));
-                    end
+                  list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reglo, regsrc.reglo, value));
+                  list.concat(taicpu.op_reg_reg(A_MOV, regdst.reghi, regsrc.reghi));
+                  current_asmdata.getjumplabel(no_carry);
+                  cg.a_cmp_reg_reg_label(list,OS_INT,OC_AE, regsrc.reglo, regdst.reglo, no_carry);
+                  list.concat(taicpu.op_reg_reg_const(A_ADDI, regdst.reghi, regdst.reghi, 1));
+                  cg.a_label(list,no_carry);
                   end
                 else
                   begin
@@ -1397,6 +1330,42 @@ implementation
                     a_load64_const_reg(list,value,tmpreg64);
                     a_op64_reg_reg_reg(list,op,size,tmpreg64,regsrc,regdst);
                   end;
+            end;
+          OP_SHL:
+            begin
+              if (value>0) and (value<=16) then
+                begin
+                  tmpreg:=cg.GetIntRegister(list,OS_32);
+                  list.concat(taicpu.op_reg_reg_const_const(A_EXTUI, tmpreg, regsrc.reglo, 32-value, value));
+                  list.concat(taicpu.op_reg_reg_const(A_SLLI, regdst.reglo, regsrc.reglo, value));
+                  list.concat(taicpu.op_reg_reg_const(A_SLLI, regdst.reghi, regsrc.reghi, value));
+                  list.concat(taicpu.op_reg_reg_reg(A_OR, regdst.reghi, tmpreg, regdst.reghi));
+                end
+              else if value=32 then
+                begin
+                  cg.a_load_reg_reg(list,OS_INT,OS_INT,regsrc.reglo,regdst.reghi);
+                  cg.a_load_const_reg(list,OS_INT,0,regdst.reglo);
+                end
+              else
+                Internalerror(2020082209);
+            end;
+          OP_SHR:
+            begin
+              if (value>0) and (value<=15) then
+                begin
+                  tmpreg:=cg.GetIntRegister(list,OS_32);
+                  list.concat(taicpu.op_reg_reg_const(A_SLLI, tmpreg, regsrc.reghi, 32-value));
+                  list.concat(taicpu.op_reg_reg_const(A_SRLI, regdst.reglo, regsrc.reglo, value));
+                  list.concat(taicpu.op_reg_reg_reg(A_OR, regdst.reglo, tmpreg, regdst.reglo));
+                  list.concat(taicpu.op_reg_reg_const(A_SRLI, regdst.reghi, regsrc.reghi, value));
+                end
+              else if value=32 then
+                begin
+                  cg.a_load_reg_reg(list,OS_INT,OS_INT,regsrc.reghi,regdst.reglo);
+                  cg.a_load_const_reg(list,OS_INT,0,regdst.reghi);
+                end
+              else
+                Internalerror(2020082210);
             end;
           OP_SUB:
             begin

@@ -14,25 +14,9 @@
 
  **********************************************************************}
 
-{$mode objfpc}
-{$h+}
-
-{$ifdef fpc}
-  {$define UsePChar}
-  {$define UseAnsiStrings}
-  {$define HasStreams}
-  {$IF FPC_FULLVERSION<30101}
-    {$define EmulateArrayInsert}
-  {$endif}
-  {$define HasFS}
-{$endif}
-
-{$IFDEF NODEJS}
-  {$define HasFS}
-{$ENDIF}
-
-
 unit PParser;
+
+{$i fcl-passrc.inc}
 
 interface
 
@@ -4429,6 +4413,7 @@ var
   i: Integer;
   AObjKind: TPasObjKind;
   ok: Boolean;
+  GenTempl: TPasGenericTemplateType;
 begin
   Result:=nil;
   ok := false;
@@ -4517,7 +4502,11 @@ begin
     if (not ok) and (Result<>nil) and not AddToParent then
       Result.Release({$IFDEF CheckPasTreeRefCount}('CreateElement'){$ENDIF});
     for i:=0 to TypeParams.Count-1 do
-      TPasElement(TypeParams[i]).Release{$IFDEF CheckPasTreeRefCount}('CreateElement'){$ENDIF};
+      begin
+      GenTempl:=TPasGenericTemplateType(TypeParams[i]);
+      GenTempl.Parent:=nil;
+      GenTempl.Release{$IFDEF CheckPasTreeRefCount}('CreateElement'){$ENDIF};
+      end;
     TypeParams.Free;
   end;
 end;

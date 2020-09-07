@@ -986,12 +986,14 @@ type
   TPasArrayScope = Class(TPasGenericScope)
   public
   end;
+  TPasArrayScopeClass = class of TPasArrayScope;
 
   { TPasProcTypeScope }
 
   TPasProcTypeScope = Class(TPasGenericScope)
   public
   end;
+  TPasProcTypeScopeClass = class of TPasProcTypeScope;
 
   { TPasClassOrRecordScope }
 
@@ -1510,10 +1512,12 @@ type
     FOptions: TPasResolverOptions;
     FPendingForwardProcs: TFPList; // list of TPasElement needed to check for forward procs
     FRootElement: TPasModule;
+    FScopeClass_Array: TPasArrayScopeClass;
     FScopeClass_Class: TPasClassScopeClass;
     FScopeClass_InitialFinalization: TPasInitialFinalizationScopeClass;
     FScopeClass_Module: TPasModuleScopeClass;
     FScopeClass_Proc: TPasProcedureScopeClass;
+    FScopeClass_ProcType: TPasProcTypeScopeClass;
     FScopeClass_Record: TPasRecordScopeClass;
     FScopeClass_Section: TPasSectionScopeClass;
     FScopeClass_WithExpr: TPasWithExprScopeClass;
@@ -1787,7 +1791,7 @@ type
     function GetTVarRec(El: TPasArrayType): TPasRecordType; virtual;
     function FindDefaultConstructor(aClass: TPasClassType): TPasConstructor; virtual;
     function GetTypeInfoParamType(Param: TPasExpr;
-      out ParamResolved: TPasResolverResult; LoType: boolean): TPasType; virtual;
+      out ParamResolved: TPasResolverResult; LoType: boolean): TPasType; virtual; // returns type of param in typeinfo(param)
   protected
     // constant evaluation
     fExprEvaluator: TResExprEvaluator;
@@ -1836,8 +1840,7 @@ type
       GenTempl: TPasGenericTemplateType; ErrorPos: TPasElement);
     function CreateSpecializedItem(El: TPasElement; GenericEl: TPasElement;
       const ParamsResolved: TPasTypeArray): TPRSpecializedItem; virtual;
-    function CreateSpecializedTypeName(SpecializedItems: TObjectList;
-      Item: TPRSpecializedItem): string; virtual;
+    function CreateSpecializedTypeName(Item: TPRSpecializedItem): string; virtual;
     procedure InitSpecializeScopes(El: TPasElement; out State: TScopeStashState); virtual;
     procedure RestoreSpecializeScopes(const State: TScopeStashState); virtual;
     procedure SpecializeGenericIntf(SpecializedItem: TPRSpecializedItem); virtual;
@@ -2424,10 +2427,12 @@ type
     property ScopeCount: integer read FScopeCount;
     property TopScope: TPasScope read FTopScope;
     property DefaultScope: TPasDefaultScope read FDefaultScope write FDefaultScope;
+    property ScopeClass_Array: TPasArrayScopeClass read FScopeClass_Array write FScopeClass_Array;
     property ScopeClass_Class: TPasClassScopeClass read FScopeClass_Class write FScopeClass_Class;
     property ScopeClass_InitialFinalization: TPasInitialFinalizationScopeClass read FScopeClass_InitialFinalization write FScopeClass_InitialFinalization;
     property ScopeClass_Module: TPasModuleScopeClass read FScopeClass_Module write FScopeClass_Module;
     property ScopeClass_Procedure: TPasProcedureScopeClass read FScopeClass_Proc write FScopeClass_Proc;
+    property ScopeClass_ProcType: TPasProcTypeScopeClass read FScopeClass_ProcType write FScopeClass_ProcType;
     property ScopeClass_Record: TPasRecordScopeClass read FScopeClass_Record write FScopeClass_Record;
     property ScopeClass_Section: TPasSectionScopeClass read FScopeClass_Section write FScopeClass_Section;
     property ScopeClass_WithExpr: TPasWithExprScopeClass read FScopeClass_WithExpr write FScopeClass_WithExpr;
@@ -2467,8 +2472,11 @@ function ProcNeedsBody(Proc: TPasProcedure): boolean;
 function ProcHasGroupOverload(Proc: TPasProcedure): boolean;
 procedure ClearHelperList(var List: TPRHelperEntryArray);
 function ChompDottedIdentifier(const Identifier: string): string;
-function FirstDottedIdentifier(const Identifier: string): string;
+function FirstDottedIdentifier(const Identifier: string): string; // without <>
+function LastDottedIdentifier(const Identifier: string): string; // without <>
 function IsDottedIdentifierPrefix(const Prefix, Identifier: string): boolean;
+function GetFirstDotPos(const Identifier: string): integer;
+function GetLastDotPos(const Identifier: string): integer;
 {$IF FPC_FULLVERSION<30101}
 function IsValidIdent(const Ident: string; AllowDots: Boolean = False; StrictDots: Boolean = False): Boolean;
 {$ENDIF}
@@ -2937,14 +2945,18 @@ end;
 
 function ChompDottedIdentifier(const Identifier: string): string;
 var
-  p: Integer;
+  p, Lvl: Integer;
 begin
   Result:=Identifier;
   p:=length(Identifier);
+  Lvl:=0;
   while (p>0) do
     begin
-    if Identifier[p]='.' then
-      break;
+    case Identifier[p] of
+    '.': if Lvl=0 then break;
+    '>': inc(Lvl);
+    '<': dec(Lvl);
+    end;
     dec(p);
     end;
   Result:=LeftStr(Identifier,p-1);
@@ -2952,13 +2964,41 @@ end;
 
 function FirstDottedIdentifier(const Identifier: string): string;
 var
-  p: SizeInt;
+  p, l: SizeInt;
 begin
-  p:=Pos('.',Identifier);
-  if p<1 then
-    Result:=Identifier
-  else
-    Result:=LeftStr(Identifier,p-1);
+  p:=1;
+  l:=length(Identifier);
+  repeat
+    if p>l then
+      exit(Identifier)
+    else if Identifier[p] in ['<','.'] then
+      exit(LeftStr(Identifier,p-1))
+    else
+      inc(p);
+  until false;
+end;
+
+function LastDottedIdentifier(const Identifier: string): string;
+var
+  p, Lvl, EndP: Integer;
+begin
+  p:=length(Identifier);
+  EndP:=p;
+  Lvl:=0;
+  while (p>0) do
+    begin
+    case Identifier[p] of
+    '.': if Lvl=0 then break;
+    '>': inc(Lvl);
+    '<':
+      begin
+      dec(Lvl);
+      EndP:=p-1;
+      end;
+    end;
+    dec(p);
+    end;
+  Result:=copy(Identifier,p+1,EndP-p);
 end;
 
 function IsDottedIdentifierPrefix(const Prefix, Identifier: string): boolean;
@@ -2970,6 +3010,43 @@ begin
       or (CompareText(Prefix,LeftStr(Identifier,l))<>0) then
     exit(false);
   Result:=(length(Identifier)=l) or (Identifier[l+1]='.');
+end;
+
+function GetFirstDotPos(const Identifier: string): integer;
+var
+  l: SizeInt;
+  Lvl: Integer;
+begin
+  Result:=1;
+  l:=length(Identifier);
+  Lvl:=0;
+  repeat
+    if Result>l then
+      exit(-1);
+    case Identifier[Result] of
+    '.': if Lvl=0 then exit;
+    '<': inc(Lvl);
+    '>': dec(Lvl);
+    end;
+    inc(Result);
+  until false;
+end;
+
+function GetLastDotPos(const Identifier: string): integer;
+var
+  Lvl: Integer;
+begin
+  Result:=length(Identifier);
+  Lvl:=0;
+  while (Result>0) do
+    begin
+    case Identifier[Result] of
+    '.': if Lvl=0 then exit;
+    '>': inc(Lvl);
+    '<': dec(Lvl);
+    end;
+    dec(Result);
+    end;
 end;
 
 function DotExprToName(Expr: TPasExpr): string;
@@ -6925,7 +7002,7 @@ begin
         RaiseMsg(20181231150404,nXCannotHaveParameters,sXCannotHaveParameters,[GetElementTypeName(Proc)],Proc);
       end;
 
-    HasDots:=Pos('.',ProcName)>1;
+    HasDots:=GetFirstDotPos(ProcName)>0;
 
     if Proc.Parent is TPasClassType then
       begin
@@ -7303,7 +7380,6 @@ var
   DeclProc: TPasProcedure;
   ClassOrRecScope: TPasClassOrRecordScope;
   SelfArg: TPasArgument;
-  p: Integer;
   SelfType, LoSelfType: TPasType;
   LastNamePart: TProcedureNamePart;
 begin
@@ -7330,11 +7406,7 @@ begin
   else
     begin
     // remove path from ProcName
-    repeat
-      p:=Pos('.',ProcName);
-      if p<1 then break;
-      Delete(ProcName,1,p);
-    until false;
+    ProcName:=LastDottedIdentifier(ProcName);
     end;
 
   if ImplProcScope.DeclarationProc=nil then
@@ -11910,7 +11982,7 @@ begin
 
     if TypeParams<>nil then
       begin
-      Scope:=TPasArrayScope(PushScope(El,TPasArrayScope));
+      Scope:=TPasArrayScope(PushScope(El,ScopeClass_Array));
       AddGenericTemplateIdentifiers(TypeParams,Scope);
       end;
   end else if TypeParams<>nil then
@@ -12239,7 +12311,7 @@ begin
 
     if TypeParams<>nil then
       begin
-      Scope:=TPasProcTypeScope(PushScope(El,TPasProcTypeScope));
+      Scope:=TPasProcTypeScope(PushScope(El,ScopeClass_ProcType));
       AddGenericTemplateIdentifiers(TypeParams,Scope);
       end;
   end else if TypeParams<>nil then
@@ -12406,7 +12478,7 @@ begin
 
   // Note: El.ProcType is nil !  It is parsed later.
 
-  HasDot:=Pos('.',ProcName)>1;
+  HasDot:=GetFirstDotPos(ProcName)>1;
   if (TypeParams<>nil) then
     if HasDot<>(TypeParams.Count>1) then
       RaiseNotYetImplemented(20190818093923,El);
@@ -12479,14 +12551,14 @@ begin
       Level:=0;
       repeat
         inc(Level);
-        p:=Pos('.',ProcName);
+        p:=GetFirstDotPos(ProcName);
         if p<1 then
           begin
           if ClassOrRecType=nil then
             RaiseInternalError(20161013170829);
           break;
           end;
-        aClassName:=LeftStr(ProcName,p-1);
+        aClassName:=FirstDottedIdentifier(ProcName);
         Delete(ProcName,1,p);
         TypeParamCount:=0;
         if TypeParams<>nil then
@@ -16497,7 +16569,7 @@ var
   begin
     // insert in front of currently parsed elements
     // beware: specializing an element can create other specialized elements
-    // add behind last specialized element of this GenericEl
+    // add behind last finished specialized element of this GenericEl
     // for example: A = class(B<C<D>>)
     // =>
     //  D
@@ -16542,15 +16614,6 @@ var
       else
         break;
       end;
-
-    //if i<0 then
-    //  begin
-    //  {$IF defined(VerbosePasResolver) or defined(VerbosePas2JS)}
-    //  writeln('InsertBehind Generic=',GetObjName(GenericEl),' Last=',GetObjName(Last));
-    //  //for i:=0 to List.Count-1 do writeln('  ',GetObjName(TObject(List[i])));
-    //  {$ENDIF}
-    //  i:=List.Count-1;
-    //  end;
     List.Insert(i+1,NewEl);
   end;
 
@@ -16565,8 +16628,6 @@ var
   ProcItem: TPRSpecializedProcItem;
 begin
   Result:=nil;
-  if Pos('$G',GenericEl.Name)>0 then
-    RaiseNotYetImplemented(20190813003729,El);
 
   SrcModule:=GenericEl.GetModule;
   SrcModuleScope:=SrcModule.CustomData as TPasModuleScope;
@@ -16596,7 +16657,7 @@ begin
   Result.Params:=ParamsResolved;
   Result.Index:=SpecializedItems.Count;
   SpecializedItems.Add(Result);
-  NewName:=CreateSpecializedTypeName(SpecializedItems,Result);
+  NewName:=CreateSpecializedTypeName(Result);
   NewClass:=TPTreeElement(GenericEl.ClassType);
   NewParent:=GenericEl.Parent;
   NewEl:=TPasElement(NewClass.Create(NewName,NewParent));
@@ -16625,10 +16686,66 @@ begin
     SpecializeGenericImpl(Result);
 end;
 
-function TPasResolver.CreateSpecializedTypeName(SpecializedItems: TObjectList;
-  Item: TPRSpecializedItem): string;
+function TPasResolver.CreateSpecializedTypeName(Item: TPRSpecializedItem): string;
+
+  function GetTypeName(aType: TPasType): string; forward;
+
+  function GetSpecParams(Item: TPRSpecializedItem): string;
+  var
+    i: Integer;
+  begin
+    Result:='<';
+    for i:=0 to length(Item.Params)-1 do
+      begin
+      if i>0 then Result:=Result+',';
+      Result:=Result+GetTypeName(Item.Params[i]);
+      end;
+    Result:=Result+'>';
+  end;
+
+  function GetTypeName(aType: TPasType): string;
+  var
+    Arr: TPasArrayType;
+    ElType: TPasType;
+    ChildItem: TPRSpecializedItem;
+  begin
+    if aType.Name='' then
+      begin
+      if aType is TPasArrayType then
+        begin
+        // e.g. TBird<array of word>
+        Result:='array of ';
+        Arr:=TPasArrayType(aType);
+        if length(Arr.Ranges)>0 then
+          RaiseNotYetImplemented(20200905173026,Item.FirstSpecialize);
+        ElType:=ResolveAliasType(Arr.ElType,false);
+        if ElType is TPasArrayType then
+          RaiseNotYetImplemented(20200905173159,Arr,'multidimensional anonymous array as generic param');
+        Result:=Result+GetTypeName(ElType);
+        end
+      else
+        RaiseNotYetImplemented(20200905173241,aType);
+      end
+    else
+      begin
+      if aType.Parent is TPasType then
+        Result:=GetTypeName(TPasType(aType.Parent))
+      else if aType is TPasUnresolvedSymbolRef then
+        Result:='System'
+      else
+        Result:=aType.GetModule.Name;
+      Result:=Result+'.'+aType.Name;
+      if aType.CustomData is TPasGenericScope then
+        begin
+        ChildItem:=TPasGenericScope(aType.CustomData).SpecializedFromItem;
+        if ChildItem<>nil then
+          Result:=Result+GetSpecParams(ChildItem);
+        end;
+      end;
+  end;
+
 begin
-  Result:=Item.GenericEl.Name+'$G'+IntToStr(SpecializedItems.Count);
+  Result:=Item.GenericEl.Name+GetSpecParams(Item);
 end;
 
 procedure TPasResolver.InitSpecializeScopes(El: TPasElement; out
@@ -17057,12 +17174,11 @@ begin
     if SpecClassOrRecScope=nil then
       RaiseNotYetImplemented(20190921221839,SpecDeclProc);
     NewImplProcName:=GenImplProc.Name;
-    p:=length(NewImplProcName);
-    while (p>0) and (NewImplProcName[p]<>'.') do dec(p);
-    if p=0 then
+    LastDotP:=GetLastDotPos(NewImplProcName);
+    if LastDotP<1 then
       RaiseNotYetImplemented(20190921221730,GenImplProc);
     // has classname -> replace generic classname with specialized classname
-    LastDotP:=p;
+    p:=LastDotP;
     while (p>1) and (NewImplProcName[p-1]<>'.') do dec(p);
     OldClassname:=copy(NewImplProcName,p,LastDotP-p);
     GenClassOrRec:=GenDeclProc.Parent as TPasMembersType;
@@ -17074,8 +17190,7 @@ begin
     begin
     // use classname of GenImplProc and name of SpecDeclProc
     OldClassname:=GenImplProc.Name;
-    p:=length(OldClassname);
-    while (p>0) and (OldClassname[p]<>'.') do dec(p);
+    p:=GetLastDotPos(OldClassname);
     if p>0 then
       NewImplProcName:=LeftStr(OldClassname,p)+SpecDeclProc.Name
     else
@@ -17664,7 +17779,7 @@ var
 begin
   if GenEl.GenericTemplateTypes<>nil then
     begin
-    GenScope:=TPasGenericScope(PushScope(SpecEl,TPasProcTypeScope));
+    GenScope:=TPasGenericScope(PushScope(SpecEl,ScopeClass_ProcType));
     if SpecializedItem<>nil then
       begin
       // specialized procedure type
@@ -18148,7 +18263,7 @@ begin
   SpecEl.PackMode:=GenEl.PackMode;
   if GenEl.GenericTemplateTypes<>nil then
     begin
-    GenScope:=TPasGenericScope(PushScope(SpecEl,TPasArrayScope));
+    GenScope:=TPasGenericScope(PushScope(SpecEl,ScopeClass_Array));
     if SpecializedItem<>nil then
       begin
       // specialized generic array
@@ -20525,10 +20640,12 @@ begin
   cInterfaceToTGUID:=cTypeConversion+1;
   cInterfaceToString:=cTypeConversion+2;
 
+  FScopeClass_Array:=TPasArrayScope;
   FScopeClass_Class:=TPasClassScope;
   FScopeClass_InitialFinalization:=TPasInitialFinalizationScope;
   FScopeClass_Module:=TPasModuleScope;
   FScopeClass_Proc:=TPasProcedureScope;
+  FScopeClass_ProcType:=TPasProcTypeScope;
   FScopeClass_Record:=TPasRecordScope;
   FScopeClass_Section:=TPasSectionScope;
   FScopeClass_WithExpr:=TPasWithExprScope;
@@ -25376,12 +25493,14 @@ function TPasResolver.GetTypeDescription(aType: TPasType; AddPath: boolean): str
       begin
       i:=GetTypeParameterCount(TPasGenericType(aType));
       if i>0 then
+        // generic, not specialized
         Result:=Result+GetGenericParamCommas(GetTypeParameterCount(TPasGenericType(aType)))
       else if aType.CustomData is TPasGenericScope then
         begin
         GenScope:=TPasGenericScope(aType.CustomData);
-        if GenScope.SpecializedFromItem<>nil then
+        if (GenScope.SpecializedFromItem<>nil) and IsValidIdent(aType.Name) then
           begin
+          // specialized without params in name -> append params
           Params:=GenScope.SpecializedFromItem.Params;
           Result:=Result+'<';
           for i:=0 to length(Params)-1 do
@@ -29519,6 +29638,7 @@ function TPasResolver.CheckClassIsClass(SrcType, DestType: TPasType): integer;
 // check if Src is equal or descends from Dest
 // Generics: TBird<T> is both directions a TBird<word>
 //       and TBird<TMap<T>> is both directions a TBird<TMap<word>>
+//       but a TBird<word> is not a TBird<char>
 
   function CheckSpecialized(SrcScope, DestScope: TPasGenericScope): boolean;
   var

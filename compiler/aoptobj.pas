@@ -344,6 +344,9 @@ Unit AoptObj;
         { removes p from asml, updates registers and replaces p with hp1 (if the next instruction was known beforehand) }
         procedure RemoveCurrentP(var p: tai; const hp1: tai); inline;
 
+        { removes hp from asml then frees it }
+        procedure RemoveInstruction(const hp: tai); inline;
+
        { traces sucessive jumps to their final destination and sets it, e.g.
          je l1                je l3
          <code>               <code>
@@ -461,8 +464,8 @@ Unit AoptObj;
 
     function JumpTargetOp(ai: taicpu): poper; inline;
       begin
-{$if defined(MIPS) or defined(riscv64) or defined(riscv32)}
-        { MIPS or RiscV branches can have 1,2 or 3 operands, target label is the last one. }
+{$if defined(MIPS) or defined(riscv64) or defined(riscv32) or defined(xtensa)}
+        { MIPS, Xtensa or RiscV branches can have 1,2 or 3 operands, target label is the last one. }
         result:=ai.oper[ai.ops-1];
 {$elseif defined(SPARC64)}
         if ai.ops=2 then
@@ -1510,6 +1513,13 @@ Unit AoptObj;
       end;
 
 
+    procedure TAOptObj.RemoveInstruction(const hp: tai); inline;
+      begin
+        AsmL.Remove(hp);
+        hp.Free;
+      end;
+
+
     function FindLiveLabel(hp: tai; var l: tasmlabel): Boolean;
       var
         next: tai;
@@ -1633,6 +1643,11 @@ Unit AoptObj;
         p.loadoper(1, p.oper[p.ops-1]^);
         p.loadreg(0, NR_X0);
         p.ops:=2;
+{$endif}
+{$ifdef xtensa}
+        p.opcode := aopt_uncondjmp;
+        p.loadoper(0, p.oper[p.ops-1]^);
+        p.ops:=1;
 {$endif}
 {$endif not avr}
 {$ifdef mips}

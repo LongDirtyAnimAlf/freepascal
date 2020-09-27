@@ -123,11 +123,11 @@ resourcestring
   SParserNoConstructorAllowed = 'Constructors or Destructors are not allowed in Interfaces or Records';
   SParserNoFieldsAllowedInX = 'Fields are not allowed in %s';
   SParserInvalidRecordVisibility = 'Records can only have public and (strict) private as visibility specifiers';
-  SErrRecordConstantsNotAllowed = 'Record constants not allowed at this location.';
-  SErrRecordVariablesNotAllowed = 'Record variables not allowed at this location.';
-  SErrRecordMethodsNotAllowed = 'Record methods not allowed at this location.';
-  SErrRecordPropertiesNotAllowed = 'Record properties not allowed at this location.';
-  SErrRecordTypesNotAllowed = 'Record types not allowed at this location.';
+  SErrRecordConstantsNotAllowed = 'Record constants not allowed at this location';
+  SErrRecordVariablesNotAllowed = 'Record variables not allowed at this location';
+  SErrRecordMethodsNotAllowed = 'Record methods not allowed at this location';
+  SErrRecordPropertiesNotAllowed = 'Record properties not allowed at this location';
+  SErrRecordTypesNotAllowed = 'Record types not allowed at this location';
   SParserTypeNotAllowedHere = 'Type "%s" not allowed here';
   SParserNotAnOperand = 'Not an operand: (%d : %s)';
   SParserArrayPropertiesCannotHaveDefaultValue = 'Array properties cannot have default value';
@@ -440,6 +440,7 @@ type
     procedure ParseFinalization;
     procedure ParseDeclarations(Declarations: TPasDeclarations);
     procedure ParseStatement(Parent: TPasImplBlock; out NewImplElement: TPasImplElement);
+    procedure ParseAdhocExpression(out NewExprElement: TPasExpr);
     procedure ParseLabels(AParent: TPasElement);
     procedure ParseProcBeginBlock(Parent: TProcedureBody);
     procedure ParseProcAsmBlock(Parent: TProcedureBody);
@@ -7798,6 +7799,11 @@ function TPasParser.CreateRecordValues(AParent: TPasElement): TRecordValues;
 begin
   Result:=TRecordValues(CreateElement(TRecordValues,'',AParent));
   Result.Kind:=pekListOfExp;
+end;
+
+procedure TPasParser.ParseAdhocExpression(out NewExprElement: TPasExpr);
+begin
+  NewExprElement := DoParseExpression(nil);
 end;
 
 initialization

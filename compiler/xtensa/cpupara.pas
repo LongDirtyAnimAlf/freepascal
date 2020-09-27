@@ -41,6 +41,7 @@ unit cpupara;
          function create_varargs_paraloc_info(p : tabstractprocdef; side: tcallercallee; varargspara:tvarargsparalist):longint;override;
          function get_funcretloc(p : tabstractprocdef; side: tcallercallee; forcetempdef: tdef): tcgpara;override;
          function ret_in_param(def: tdef; pd: tabstractprocdef): boolean;override;
+         function param_use_paraloc(const cgpara: tcgpara): boolean;override;
        private
          { the max. register depends on the used call instruction }
          maxintreg : TSuperRegister;
@@ -105,6 +106,16 @@ unit cpupara;
       end;
 
 
+    function tcpuparamanager.param_use_paraloc(const cgpara: tcgpara): boolean;
+      begin
+        { we always set up a stack frame -> we can always access the parameters
+          this way }
+        result:=
+          (cgpara.location^.loc=LOC_REFERENCE) and
+          not assigned(cgpara.location^.next);
+      end;
+
+
     function tcpuparamanager.push_addr_param(varspez:tvarspez;def : tdef;calloption : tproccalloption) : boolean;
       begin
         result:=false;
@@ -158,6 +169,8 @@ unit cpupara;
             begin
               curintreg:=RS_A2;
               maxintreg:=RS_A7;
+              if (side=calleeside) and (current_procinfo.framepointer=NR_STACK_POINTER_REG) then
+                cur_stack_offset:=(p as tcpuprocdef).total_stackframe_size;
             end;
           else
             Internalerror(2020031404);

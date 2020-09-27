@@ -84,7 +84,8 @@ unit cpupi;
             callins:=A_CALL0;
             callxins:=A_CALLX0;
             maxcall:=0;
-            framepointer:=NR_FRAME_POINTER_REG;
+            { we do not use a frame pointer }
+            framepointer:=NR_STACK_POINTER_REG;
           end;
       end;
 
@@ -199,7 +200,7 @@ unit cpupi;
           end
         else
           begin
-            { a frame pointer would be only needed if we do an " alloca" }
+            { a frame pointer would be only needed if we do an "alloca" }
             RS_FRAME_POINTER_REG:=RS_A15;
             NR_FRAME_POINTER_REG:=NR_A15;
           end;

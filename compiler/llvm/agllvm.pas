@@ -307,7 +307,7 @@ implementation
             if ref.offset<>0 then
               result:=result+'offset='+tostr(ref.offset);
             result:=result+')**';
-            internalerror(2013060225);
+            internalerror(2013060203);
           end;
          if ref.base<>NR_NO then
            result:=result+getregisterstring(ref.base)
@@ -454,7 +454,7 @@ implementation
                else
                  getopstr:='null';
                if o.ref^.offset<>0 then
-                 internalerror(2013060223);
+                 internalerror(2013060202);
              end
            else
              getopstr:=getreferencestring(o.ref^,refwithalign);
@@ -883,7 +883,7 @@ implementation
               aitrealconst_s64comp:
                 writer.AsmWriteLn(asminfo^.comment+'value: '+extended2str(tai_realconst(hp).value.s64compval));
               else
-                internalerror(2014050604);
+                internalerror(2014050603);
             end;
             internalerror(2016120202);
           end;
@@ -960,7 +960,7 @@ implementation
 }
             end;
           else
-            internalerror(200704251);
+            internalerror(2007042504);
         end;
       end;
 
@@ -1004,8 +1004,8 @@ implementation
              (pd.mangledname=(target_info.cprefix+'setjmp')) then
             writer.AsmWrite(' returns_twice');
           if po_inline in pd.procoptions then
-            writer.AsmWrite(' inlinehint');
-          if (po_noinline in pd.procoptions) or
+            writer.AsmWrite(' inlinehint')
+          else if (po_noinline in pd.procoptions) or
              (pio_inline_forbidden in pd.implprocoptions) then
             writer.AsmWrite(' noinline');
           { ensure that functions that happen to have the same name as a
@@ -1019,7 +1019,9 @@ implementation
           if pio_thunk in pd.implprocoptions then
             writer.AsmWrite(' "thunk"');
           if llvmflag_null_pointer_valid in llvmversion_properties[current_settings.llvmversion] then
-            writer.AsmWrite(' "null-pointer-is-valid"="true"');
+            writer.AsmWrite(' "null-pointer-is-valid"="true"')
+          else if llvmflag_null_pointer_valid_new in llvmversion_properties[current_settings.llvmversion] then
+            writer.AsmWrite(' null_pointer_is_valid');
           if not(pio_fastmath in pd.implprocoptions) then
             writer.AsmWrite(' strictfp');
         end;
@@ -1378,7 +1380,7 @@ implementation
             begin
               { must only appear as an operand }
               if fdecllevel=0 then
-                internalerror(2019050110);
+                internalerror(2019050101);
               writer.AsmWrite('!');
               writer.AsmWrite(tai_llvmmetadatareferenceoperand(hp).id);
               writer.AsmWrite(' !');

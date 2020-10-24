@@ -2891,7 +2891,7 @@ implementation
                     { find proc field in methodpointer record }
                     hsym:=tfieldvarsym(trecorddef(methodpointertype).symtable.Find('proc'));
                     if not assigned(hsym) then
-                      internalerror(200412043);
+                      internalerror(2004120405);
                     { Compare tmehodpointer(left).proc }
                     right:=csubscriptnode.create(
                                  hsym,
@@ -3569,9 +3569,16 @@ implementation
       var
         temp: tnode;
         leftoriginallysigned,
-        canbesignedconst, canbeunsignedconst: boolean;
+        canbesignedconst, canbeunsignedconst, swapped: boolean;
       begin
         result := false;
+        swapped := false;
+        { make sure that if there is a constant, that it's on the right }
+        if left.nodetype = ordconstn then
+          begin
+            swapleftright;
+            swapped := true;
+          end;
         if is_32to64typeconv(left) then
           begin
             leftoriginallysigned:=is_signed(ttypeconvnode(left).left.resultdef);
@@ -3610,6 +3617,10 @@ implementation
                 result := true;
               end;
           end;
+        { pass_Typecheck caches left/right type and resultdef, so restore the
+          original order }
+        if not result and swapped then
+          swapleftright;
       end;
 
 
@@ -3747,11 +3758,7 @@ implementation
 
         { make sure that if there is a constant, that it's on the right }
         if left.nodetype = ordconstn then
-          begin
-            temp := right;
-            right := left;
-            left := temp;
-          end;
+          swapleftright;
 
         { can we use a shift instead of a mul? }
         if not (cs_check_overflow in current_settings.localswitches) and

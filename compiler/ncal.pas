@@ -3578,7 +3578,7 @@ implementation
       var
         candidates : tcallcandidates;
         oldcallnode : tcallnode;
-        hpt : tnode;
+        hpt,tmp : tnode;
         pt : tcallparanode;
         lastpara : longint;
         paraidx,
@@ -4003,6 +4003,19 @@ implementation
                    because the checks above have to take type conversions into
                    e.g. class reference types account }
                  hpt:=actualtargetnode(@hpt)^;
+
+                 { if the value a type helper works on is a derefentiation we need to
+                   pass the original pointer as Self as the Self value might be
+                   changed by the helper }
+                 if is_objectpascal_helper(tdef(procdefinition.owner.defowner)) and
+                    not is_implicit_pointer_object_type(tobjectdef(procdefinition.owner.defowner).extendeddef) and
+                    (hpt.nodetype=derefn) then
+                   begin
+                     tmp:=tderefnode(hpt).left;
+                     tderefnode(hpt).left:=nil;
+                     methodpointer.free;
+                     methodpointer:=tmp;
+                   end;
 
                  { R.Init then R will be initialized by the constructor,
                    Also allow it for simple loads }
@@ -4734,6 +4747,10 @@ implementation
         if para.parasym.varspez in [vs_var,vs_out] then
           exit(false);
 
+        { We cannot create a formaldef temp and assign something to it }
+        if para.parasym.vardef.typ=formaldef then
+          exit(false);
+
         { We don't need temps for parameters that are already temps, except if
           the passed temp could be put in a regvar while the parameter inside
           the routine cannot be (e.g., because its address is taken in the
@@ -4750,10 +4767,6 @@ implementation
         if (tparavarsym(para.parasym).varregable in [vr_none,vr_addr]) and
            not(para.left.expectloc in [LOC_REFERENCE,LOC_CREFERENCE]) then
           exit(true);
-
-        { We cannot create a formaldef temp and assign something to it }
-        if para.parasym.vardef.typ=formaldef then
-          exit(false);
 
         { We try to handle complex expressions later by taking their address
           and storing this address in a temp (which is then dereferenced when
@@ -4912,6 +4925,9 @@ implementation
 
             result:=true;
           end
+        { for formaldefs, we do not need a temp., but it must be inherited if they are not regable }
+        else if (para.parasym.vardef.typ=formaldef) and not(tparavarsym(para.parasym).is_regvar(false)) then
+          make_not_regable(para.left,[ra_addr_regable]);
       end;
 
 

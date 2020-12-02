@@ -2388,6 +2388,8 @@ begin
           RaiseNotSupported(20180328224632,aClass,GetObjName(o));
         end;
     end;
+
+  UseAttributes(El);
 end;
 
 procedure TPasAnalyzer.UseClassConstructor(El: TPasMembersType);
@@ -3157,15 +3159,10 @@ begin
 end;
 
 function TPasAnalyzer.IsSpecializedGenericType(El: TPasElement): boolean;
-var
-  GenScope: TPasGenericScope;
 begin
-  if El is TPasGenericType then
-    begin
-    GenScope:=El.CustomData as TPasGenericScope;
-    if (GenScope<>nil) and (GenScope.SpecializedFromItem<>nil) then
-      exit(true);
-    end;
+  if (El is TPasGenericType) and (El.CustomData is TPasGenericScope)
+      and (TPasGenericScope(El.CustomData).SpecializedFromItem<>nil) then
+    exit(true);
   Result:=false;
 end;
 

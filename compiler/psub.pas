@@ -237,14 +237,6 @@ implementation
           begin
             currpara:=tparavarsym(procdef.paras[i]);
             case currpara.vardef.typ of
-              formaldef :
-                begin
-                  if (currpara.varspez in [vs_out,vs_var,vs_const,vs_constref]) then
-                    begin
-                      _no_inline('formal parameter');
-                      exit;
-                    end;
-                end;
               arraydef :
                 begin
                   if is_array_of_const(currpara.vardef) or
@@ -1054,7 +1046,7 @@ implementation
       end;
 
 
-{$if defined(i386) or defined(x86_64) or defined(arm) or defined(riscv32) or defined(riscv64)}
+{$if defined(i386) or defined(x86_64) or defined(arm) or defined(riscv32) or defined(riscv64) or defined(m68k)}
     const
       exception_flags: array[boolean] of tprocinfoflags = (
         [],
@@ -1066,7 +1058,7 @@ implementation
       begin
         tg:=tgobjclass.create;
 
-{$if defined(i386) or defined(x86_64) or defined(arm)}
+{$if defined(i386) or defined(x86_64) or defined(arm) or defined(m68k)}
 {$if defined(arm)}
         { frame and stack pointer must be always the same on arm thumb so it makes no
           sense to fiddle with a frame pointer }
@@ -1135,7 +1127,15 @@ implementation
                 generate_parameter_info;
 
                 if not(procdef.stack_tainting_parameter(calleeside)) and
-                   not(has_assembler_child) {and (para_stack_size=0)} then
+                   not(has_assembler_child)
+{$ifdef m68k}
+                  { parasize must be really zero, this means also that no result may be returned
+                    in a parameter }
+                  and not((current_procinfo.procdef.proccalloption in clearstack_pocalls) and
+                    not(current_procinfo.procdef.generate_safecall_wrapper) and
+                    paramanager.ret_in_param(current_procinfo.procdef.returndef,current_procinfo.procdef))
+{$endif m68k}
+                   {and (para_stack_size=0)} then
                   begin
                     { Only need to set the framepointer }
                     framepointer:=NR_STACK_POINTER_REG;
@@ -1164,7 +1164,7 @@ implementation
 {$endif defined(arm)}
               end;
           end;
-{$endif defined(x86) or defined(arm)}
+{$endif defined(x86) or defined(arm) or defined(m68k)}
 {$if defined(xtensa)}
         { On xtensa, the stack frame size can be estimated to avoid using an extra frame pointer,
           in case parameters are passed on the stack.
@@ -1475,7 +1475,7 @@ implementation
         if Assigned(procdef.struct) then
           begin
             if Assigned(procdef.struct.objrealname) then
-              Write(T, ' struct="', TNode.SanitiseXMLString(procdef.struct.objrealname^), '"')
+              Write(T, ' struct="', SanitiseXMLString(procdef.struct.objrealname^), '"')
             else
               Write(T, ' struct="&lt;NULL&gt;"');
           end;
@@ -1523,7 +1523,7 @@ implementation
             PrintType('package stub');
         end;
 
-        Write(T, ' name="', TNode.SanitiseXMLString(procdef.customprocname([pno_showhidden, pno_noclassmarker])), '"');
+        Write(T, ' name="', SanitiseXMLString(procdef.customprocname([pno_showhidden, pno_noclassmarker])), '"');
 
         if po_hascallingconvention in procdef.procoptions then
           Write(T, ' convention="', proccalloptionStr[procdef.proccalloption], '"');
@@ -1533,7 +1533,7 @@ implementation
         PrintNodeIndent;
 
         if Assigned(procdef.returndef) and not is_void(procdef.returndef) then
-          WriteLn(T, PrintNodeIndention, '<returndef>', TNode.SanitiseXMLString(procdef.returndef.typesymbolprettyname), '</returndef>');
+          WriteLn(T, PrintNodeIndention, '<returndef>', SanitiseXMLString(procdef.returndef.typesymbolprettyname), '</returndef>');
 
         if po_reintroduce in procdef.procoptions then
           PrintOption('reintroduce');
@@ -2472,7 +2472,6 @@ implementation
            printproc( 'after parsing');
 
 {$ifdef DEBUG_NODE_XML}
-         printnodeindention := printnodespacing;
          XMLPrintProc;
 {$endif DEBUG_NODE_XML}
 
@@ -2913,6 +2912,8 @@ implementation
         WriteLn(T, '<?xml version="1.0" encoding="utf-8"?>');
         WriteLn(T, '<', RootName, ' name="', ModuleName, '">');
         Close(T);
+
+        printnodeindention := printnodespacing;
       end;
 
 

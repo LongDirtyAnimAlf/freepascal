@@ -673,17 +673,7 @@ implementation
                     eq:=compare_defs_ext(ld,pf.returndef,nothingn,conv,pd,cdo);
                     result:=
                       (eq=te_exact) or
-                      (
-                        (eq=te_incompatible) and
-                        { don't allow overloading assigning to custom shortstring
-                          types, because we also don't want to differentiate based
-                          on different shortstring types (e.g.,
-                          "operator :=(const v: variant) res: shorstring" also
-                          has to work for assigning a variant to a string[80])
-                        }
-                        (not is_shortstring(pf.returndef) or
-                         (tstringdef(pf.returndef).len=255))
-                      );
+                      (eq=te_incompatible);
                   end
                 else
                 { enumerator is a special case too }
@@ -3691,7 +3681,7 @@ implementation
                end;
              { Setup the first procdef as best, only count it as a result
                when it is valid }
-             if FCandidateProcs^.invalid then
+             if besthpstart^.invalid then
                cntpd:=0
              else
                cntpd:=1;
@@ -3701,7 +3691,9 @@ implementation
                  restart := decide_restart(hp,besthpstart);
                  if not restart then
                    begin
-                   if not singlevariant then
+                   if besthpstart^.invalid then res := 1
+                   else if hp^.invalid then res := -1
+                   else if not singlevariant then
                      res:=is_better_candidate(hp,besthpstart)
                    else
                      res:=is_better_candidate_single_variant(hp,besthpstart);
@@ -3721,7 +3713,10 @@ implementation
                        end;
                      { besthpstart is already set to hp }
                      bestpd:=besthpstart^.data;
-                     cntpd:=1;
+                     if besthpstart^.invalid then
+                       cntpd:=0
+                     else
+                       cntpd:=1;
                    end
                  else if (res<0) then
                    begin

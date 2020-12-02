@@ -226,17 +226,13 @@ type
     procedure TestPC_Specialize_LocalTypeInUnit;
     procedure TestPC_Specialize_ClassForward;
     procedure TestPC_InlineSpecialize_LocalTypeInUnit;
-    // ToDo: specialize extern generic type in unit interface
-    // ToDo: specialize extern generic type in unit implementation
-    // ToDo: specialize extern generic type in proc decl
-    // ToDo: specialize extern generic type in proc body
-    // ToDo: inline specialize extern generic type in unit interface
-    // ToDo: inline specialize extern generic type in unit implementation
-    // ToDo: inline specialize extern generic type in proc decl
-    // ToDo: inline specialize extern generic type in proc body
+    procedure TestPC_Specialize_Array;
+    procedure TestPC_Specialize_ProcType;
     // ToDo: half specialize TBird<T> = class a: TAnt<word,T>; end;
     // ToDo: no specialize: TBird<T> = class a: TBird<T>; end;
+    procedure TestPC_Constraints;
     // ToDo: constraints
+    // ToDo: unit impl declarations used by generics
 
     procedure TestPC_UseUnit;
     procedure TestPC_UseUnit_Class;
@@ -420,7 +416,7 @@ var
 begin
   InitialParserOptions:=Parser.Options;
   Analyzer.Options:=Analyzer.Options+[paoSkipGenericProc];
-  Converter.Options:=Converter.Options+[coShortRefGlobals,coShortRefGenFunc];
+  Converter.Options:=Converter.Options+[coShortRefGlobals];
   ConvertUnit;
 
   FPCUWriter:=TPCUWriter.Create;
@@ -3436,6 +3432,100 @@ begin
   '  Run;',
   'end;',
   'begin',
+  '']);
+  WriteReadUnit;
+end;
+
+procedure TTestPrecompile.TestPC_Specialize_Array;
+begin
+  StartUnit(false);
+  Add([
+  '{$mode delphi}',
+  'interface',
+  'type',
+  '  TArray<T> = array of T;',
+  'var',
+  '  da: TArray<double>;',
+  'procedure Fly;',
+  'implementation',
+  'var wa: TArray<word>;',
+  'procedure Run;',
+  'var',
+  '  sha: TArray<shortint>;',
+  '  ba: TArray<boolean>;',
+  'begin',
+  '  sha[1]:=3;',
+  '  wa[2]:=4;',
+  '  ba[3]:=true;',
+  'end;',
+  'procedure Fly;',
+  'var la: TArray<longint>;',
+  'begin',
+  '  la[4]:=5;',
+  '  Run;',
+  'end;',
+  'begin',
+  '']);
+  WriteReadUnit;
+end;
+
+procedure TTestPrecompile.TestPC_Specialize_ProcType;
+begin
+  StartUnit(false);
+  Add([
+  '{$mode delphi}',
+  'interface',
+  'type',
+  '  TFunc<R,P> = function(a: P): R;',
+  'var',
+  '  a: TFunc<word,double>;',
+  'procedure Fly;',
+  'implementation',
+  'var b: TFunc<byte,word>;',
+  'procedure Run;',
+  'var',
+  '  c: TFunc<shortint,string>;',
+  'begin',
+  '  a(3.3);',
+  '  b(4);',
+  '  c(''abc'');',
+  'end;',
+  'procedure Fly;',
+  'var d: TFunc<longint,boolean>;',
+  'begin',
+  '  d(true);',
+  '  Run;',
+  'end;',
+  'begin',
+  '']);
+  WriteReadUnit;
+end;
+
+procedure TTestPrecompile.TestPC_Constraints;
+begin
+  StartUnit(true,[supTObject]);
+  Add([
+  '{$mode delphi}',
+  'interface',
+  'type',
+  '  TBird<T: class> = class',
+  '  end;',
+  '  TEagle<T: record> = class',
+  '  end;',
+  '  TAnt<T: constructor> = class',
+  '  end;',
+  '  TFish = class end;',
+  '  TBirdFish = TBird<TFish>;',
+  '  TAntFish = TAnt<TFish>;',
+  '  TWater<T: TFish> = class',
+  '  end;',
+  '  TRec = record end;',
+  'var',
+  '  bf: TBirdFish;',
+  '  af: TAntFish;',
+  '  er: TEagle<TRec>;',
+  '  wf: TWater<TFish>;',
+  'implementation',
   '']);
   WriteReadUnit;
 end;

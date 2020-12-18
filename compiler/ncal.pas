@@ -3575,6 +3575,18 @@ implementation
 
 
     function tcallnode.pass_typecheck:tnode;
+
+      function is_undefined_recursive(def:tdef):boolean;
+        begin
+          { might become more refined in the future }
+          if def.typ=undefineddef then
+            result:=true
+          else if def.typ=arraydef then
+            result:=is_undefined_recursive(tarraydef(def).elementdef)
+          else
+            result:=false;
+        end;
+
       var
         candidates : tcallcandidates;
         oldcallnode : tcallnode;
@@ -3584,6 +3596,7 @@ implementation
         paraidx,
         cand_cnt : integer;
         i : longint;
+        ignoregenericparacall,
         ignorevisibility,
         is_const : boolean;
         statements : tstatementnode;
@@ -3771,12 +3784,33 @@ implementation
                       { Multiple candidates left? }
                       if cand_cnt>1 then
                        begin
-                         CGMessage(type_e_cant_choose_overload_function);
+                         { if we're inside a generic and call another function
+                           with generic types as arguments we don't complain in
+                           the generic, but only during the specialization }
+                         ignoregenericparacall:=false;
+                         if df_generic in current_procinfo.procdef.defoptions then
+                           begin
+                             pt:=tcallparanode(left);
+                             while assigned(pt) do
+                              begin
+                                if is_undefined_recursive(pt.resultdef) then
+                                  begin
+                                    ignoregenericparacall:=true;
+                                    break;
+                                  end;
+                                pt:=tcallparanode(pt.right);
+                              end;
+                           end;
+
+                         if not ignoregenericparacall then
+                           begin
+                             CGMessage(type_e_cant_choose_overload_function);
 {$ifdef EXTDEBUG}
-                         candidates.dump_info(V_Hint);
+                             candidates.dump_info(V_Hint);
 {$else EXTDEBUG}
-                         candidates.list(false);
+                             candidates.list(false);
 {$endif EXTDEBUG}
+                           end;
                          { we'll just use the first candidate to make the
                            call }
                        end;
@@ -3980,8 +4014,27 @@ implementation
 
               if methodpointer.nodetype<>typen then
                begin
-                  { Remove all postfix operators }
+                 { if the value a type helper works on is a derefentiation (before
+                   removing postix operators) we need to pass the original pointer
+                   as Self as the Self value might be changed by the helper }
+                 if is_objectpascal_helper(tdef(procdefinition.owner.defowner)) and
+                    not is_implicit_pointer_object_type(tobjectdef(procdefinition.owner.defowner).extendeddef) then
+                   begin
+                     hpt:=methodpointer;
+
+                     hpt:=actualtargetnode(@hpt)^;
+                     if hpt.nodetype=derefn then
+                       begin
+                         tmp:=tderefnode(hpt).left;
+                         tderefnode(hpt).left:=nil;
+                         methodpointer.free;
+                         methodpointer:=tmp;
+                       end;
+                   end;
+
                   hpt:=methodpointer;
+
+                  { Remove all postfix operators }
                   while assigned(hpt) and (hpt.nodetype in [subscriptn,vecn]) do
                     hpt:=tunarynode(hpt).left;
 
@@ -4003,19 +4056,6 @@ implementation
                    because the checks above have to take type conversions into
                    e.g. class reference types account }
                  hpt:=actualtargetnode(@hpt)^;
-
-                 { if the value a type helper works on is a derefentiation we need to
-                   pass the original pointer as Self as the Self value might be
-                   changed by the helper }
-                 if is_objectpascal_helper(tdef(procdefinition.owner.defowner)) and
-                    not is_implicit_pointer_object_type(tobjectdef(procdefinition.owner.defowner).extendeddef) and
-                    (hpt.nodetype=derefn) then
-                   begin
-                     tmp:=tderefnode(hpt).left;
-                     tderefnode(hpt).left:=nil;
-                     methodpointer.free;
-                     methodpointer:=tmp;
-                   end;
 
                  { R.Init then R will be initialized by the constructor,
                    Also allow it for simple loads }
@@ -4198,11 +4238,11 @@ implementation
                                 (hpcurr.parasym.paraloc[callerside].location^.reference.offset>
                                  hp.parasym.paraloc[callerside].location^.reference.offset)) or
                                (paramanager.use_fixed_stack and
-                                (node_complexity(hpcurr)<node_complexity(hp))) then
+                                (node_complexity(hpcurr.left)<node_complexity(hp.left))) then
 {$elseif defined(jvm)}
                             if (hpcurr.parasym.paraloc[callerside].location^.reference.offset<hp.parasym.paraloc[callerside].location^.reference.offset) then
 {$else jvm}
-                            if (node_complexity(hpcurr)<node_complexity(hp)) then
+                            if (node_complexity(hpcurr.left)<node_complexity(hp.left)) then
 {$endif jvm}
                               break;
                           end;
@@ -4219,7 +4259,7 @@ implementation
                   LOC_REGISTER :
                     begin
                       if (hp.parasym.paraloc[callerside].location^.loc<>LOC_REFERENCE) and
-                         (node_complexity(hpcurr)>node_complexity(hp)) then
+                         (node_complexity(hpcurr.left)>node_complexity(hp.left)) then
                         break;
                     end;
                   else

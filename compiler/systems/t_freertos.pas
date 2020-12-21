@@ -225,7 +225,6 @@ begin
   with embedded_controllers[current_settings.controllertype] do
     with linkres do
       begin
-        Add('ENTRY(_START)');
         Add('MEMORY');
         Add('{');
         if flashsize<>0 then
@@ -241,16 +240,26 @@ begin
 
         Add('}');
         Add('_stack_top = 0x' + IntToHex(sramsize+srambase,8) + ';');
+        Add('PROVIDE(__stack = _stack_top);');
+        Add('__ram_end__ = 0x' + IntToHex((sramsize+srambase-1),8) + ';');
+        Add('ENTRY(_START)');
+        Add('PROVIDE(Reset_Handler = _START);');
         Add('SECTIONS');
         Add('{');
         Add('    .text :');
         Add('    {');
         Add('    _text_start = .;');
+        if (embedded_controllers[current_settings.controllertype].controllertypestr='WIO_TERMINAL') then
+          begin
+            Add('    KEEP(*(.sketch_boot))');
+            Add('    . = ALIGN(0x4000);');
+          end;
         Add('    KEEP(*(.init .init.*))');
         Add('    *(.text .text.*)');
         Add('    *(.strings)');
         Add('    *(.rodata .rodata.*)');
         Add('    *(.comment)');
+        Add('    KEEP(*(.eh_frame*))');
         Add('    . = ALIGN(4);');
         Add('    _etext = .;');
         if flashsize<>0 then

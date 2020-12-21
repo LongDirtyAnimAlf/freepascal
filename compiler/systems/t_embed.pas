@@ -699,6 +699,7 @@ begin
       ct_samd21j16b,
       ct_samd21j17a,
       ct_samd21j18a,
+      ct_samd51p19a,
       ct_samc21xpro,
       ct_samd10xmini,
       ct_samd20xpro,
@@ -707,6 +708,7 @@ begin
       ct_sam3x8e,
       ct_arduino_due,
       ct_flip_n_click,
+      ct_wio_terminal,
       
       { Nordic Semiconductor }
       ct_nrf51422_xxaa,

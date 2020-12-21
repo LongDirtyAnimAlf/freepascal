@@ -77,7 +77,7 @@ CPU_UNITS=stm32f103xe cortexm3 cortexm4 # thumb2_bare
 CPU_UNITS_DEFINED=1
 endif
 ifeq ($(SUBARCH),armv7em)
-CPU_UNITS=stm32f401xe cortexm3 cortexm4 cortexm7 # thumb2_bare
+CPU_UNITS=samd51p19a stm32f401xe cortexm3 cortexm4 cortexm7 # thumb2_bare
 CPU_UNITS_DEFINED=1
 endif
 ifeq ($(SUBARCH),armv4t)
